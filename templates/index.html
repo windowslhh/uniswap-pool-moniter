@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Uniswap V3 Pool Monitor - Base</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --card-bg: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --accent: #ff007a;
+    --green: #3fb950;
+    --blue: #58a6ff;
+    --yellow: #d29922;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    min-height: 100vh;
+    padding: 24px;
+  }
+  .header {
+    text-align: center;
+    margin-bottom: 32px;
+  }
+  .header h1 {
+    font-size: 28px;
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--accent), var(--blue));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .header .subtitle {
+    color: var(--text-muted);
+    font-size: 14px;
+    margin-top: 8px;
+  }
+  .status-bar {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 24px;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    display: inline-block;
+    animation: pulse 2s infinite;
+  }
+  .status-dot.error { background: #f85149; }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+  .pools-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(520px, 1fr));
+    gap: 24px;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  .pool-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px;
+    transition: border-color 0.2s;
+  }
+  .pool-card:hover { border-color: var(--accent); }
+  .pool-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+  }
+  .pool-name {
+    font-size: 22px;
+    font-weight: 700;
+  }
+  .fee-badge {
+    background: rgba(255, 0, 122, 0.15);
+    color: var(--accent);
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .pool-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .stat-item {
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 10px;
+    padding: 12px;
+    text-align: center;
+  }
+  .stat-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+  }
+  .stat-value {
+    font-size: 16px;
+    font-weight: 600;
+  }
+  .stat-value.price { color: var(--blue); }
+  .stat-value.tvl { color: var(--green); }
+
+  /* Metrics table */
+  .metrics-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  .metrics-table th {
+    text-align: left;
+    padding: 10px 12px;
+    color: var(--text-muted);
+    font-weight: 500;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border);
+  }
+  .metrics-table td {
+    padding: 12px;
+    border-bottom: 1px solid rgba(48, 54, 61, 0.5);
+  }
+  .metrics-table tr:last-child td { border-bottom: none; }
+  .period-label {
+    font-weight: 600;
+    color: var(--text-muted);
+  }
+  .apy-value {
+    font-weight: 700;
+    color: var(--green);
+  }
+  .apy-value.high { color: var(--yellow); }
+  .apy-value.very-high { color: #f85149; }
+
+  .data-source {
+    text-align: right;
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 12px;
+    opacity: 0.6;
+  }
+
+  .loading {
+    text-align: center;
+    padding: 60px;
+    color: var(--text-muted);
+  }
+  .spinner {
+    width: 32px; height: 32px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin: 0 auto 16px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .error-msg {
+    background: rgba(248, 81, 73, 0.1);
+    border: 1px solid rgba(248, 81, 73, 0.3);
+    border-radius: 10px;
+    padding: 16px;
+    color: #f85149;
+    text-align: center;
+    max-width: 600px;
+    margin: 20px auto;
+  }
+
+  @media (max-width: 600px) {
+    body { padding: 12px; }
+    .pools-grid { grid-template-columns: 1fr; }
+    .pool-stats { grid-template-columns: 1fr; }
+    .metrics-table { font-size: 13px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Uniswap V3 Pool Monitor</h1>
+  <div class="subtitle">Base Chain | Real-time Pool Analytics</div>
+</div>
+
+<div class="status-bar">
+  <span class="status-dot" id="statusDot"></span>
+  <span id="statusText">Loading...</span>
+  <span>|</span>
+  <span>Auto-refresh: 5 min</span>
+</div>
+
+<div id="content">
+  <div class="loading">
+    <div class="spinner"></div>
+    <div>Fetching pool data...</div>
+  </div>
+</div>
+
+<script>
+const REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
+
+function formatUSD(value) {
+  if (value >= 1e9) return '$' + (value / 1e9).toFixed(2) + 'B';
+  if (value >= 1e6) return '$' + (value / 1e6).toFixed(2) + 'M';
+  if (value >= 1e3) return '$' + (value / 1e3).toFixed(2) + 'K';
+  return '$' + value.toFixed(2);
+}
+
+function formatPrice(value, token0, token1) {
+  if (value === 0) return '-';
+  // For stablecoin pairs show more decimals
+  if (['USDC', 'USDT', 'DAI'].includes(token0) && ['USDC', 'USDT', 'DAI'].includes(token1)) {
+    return value.toFixed(6);
+  }
+  if (value >= 1000) return value.toFixed(2);
+  if (value >= 1) return value.toFixed(4);
+  return value.toFixed(8);
+}
+
+function apyClass(apy) {
+  if (apy >= 100) return 'apy-value very-high';
+  if (apy >= 20) return 'apy-value high';
+  return 'apy-value';
+}
+
+function renderPools(data) {
+  const pools = data.pools || [];
+  if (pools.length === 0) {
+    return '<div class="error-msg">No pool data available</div>';
+  }
+
+  return '<div class="pools-grid">' + pools.map(pool => {
+    const m = pool.metrics;
+    return `
+      <div class="pool-card">
+        <div class="pool-header">
+          <span class="pool-name">${pool.name}</span>
+          <span class="fee-badge">Fee ${pool.fee_tier}</span>
+        </div>
+
+        <div class="pool-stats">
+          <div class="stat-item">
+            <div class="stat-label">${pool.token0} Price (USD)</div>
+            <div class="stat-value price">${pool.base_price_usd ? '$' + Number(pool.base_price_usd).toLocaleString(undefined, {maximumFractionDigits: 2}) : '-'}</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">Price (${pool.token0}/${pool.token1})</div>
+            <div class="stat-value price">${formatPrice(pool.price_ratio, pool.token0, pool.token1)}</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">TVL</div>
+            <div class="stat-value tvl">${formatUSD(pool.tvl_usd)}</div>
+          </div>
+        </div>
+
+        <table class="metrics-table">
+          <thead>
+            <tr>
+              <th>Period</th>
+              <th>Volume</th>
+              <th>Fees</th>
+              <th>APY</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${['1d', '7d', '30d'].map(period => `
+              <tr>
+                <td class="period-label">${period}</td>
+                <td>${formatUSD(m[period].volume)}</td>
+                <td>${formatUSD(m[period].fees)}</td>
+                <td class="${apyClass(m[period].apy)}">${m[period].apy.toFixed(2)}%</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+
+        <div class="data-source">
+          Source: ${pool.data_source} |
+          <a href="https://www.geckoterminal.com/base/pools/${pool.address}" target="_blank"
+             style="color: var(--text-muted);">View on GeckoTerminal</a>
+        </div>
+      </div>
+    `;
+  }).join('') + '</div>';
+}
+
+async function fetchData() {
+  const dot = document.getElementById('statusDot');
+  const statusText = document.getElementById('statusText');
+  const content = document.getElementById('content');
+
+  try {
+    const resp = await fetch('/api/pools');
+    const data = await resp.json();
+
+    if (!data.success) {
+      throw new Error(data.error || 'Unknown error');
+    }
+
+    content.innerHTML = renderPools(data);
+    dot.classList.remove('error');
+    const ts = new Date(data.timestamp * 1000);
+    statusText.textContent = 'Last updated: ' + ts.toLocaleTimeString();
+
+    if (data.errors && data.errors.length > 0) {
+      content.innerHTML += data.errors.map(e =>
+        `<div class="error-msg">${e.pool}: ${e.error}</div>`
+      ).join('');
+    }
+  } catch (err) {
+    dot.classList.add('error');
+    statusText.textContent = 'Error fetching data';
+    content.innerHTML = `<div class="error-msg">
+      Failed to load pool data: ${err.message}<br>
+      <small>Will retry in 5 minutes. Check console for details.</small>
+    </div>`;
+    console.error('Fetch error:', err);
+  }
+}
+
+// Initial load
+fetchData();
+// Auto refresh
+setInterval(fetchData, REFRESH_INTERVAL);
+</script>
+</body>
+</html>
