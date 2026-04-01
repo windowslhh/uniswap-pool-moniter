@@ -6,341 +6,602 @@
 <title>Uniswap V3 Pool Monitor - Base</title>
 <style>
   :root {
-    --bg: #0d1117;
-    --card-bg: #161b22;
-    --border: #30363d;
-    --text: #e6edf3;
-    --text-muted: #8b949e;
+    --bg: #0a0e14;
+    --surface: #131820;
+    --card: #1a2029;
+    --border: #262e3a;
+    --border-hover: #3d4a5c;
+    --text: #e2e8f0;
+    --text-dim: #8899aa;
+    --text-muted: #556677;
     --accent: #ff007a;
-    --green: #3fb950;
-    --blue: #58a6ff;
-    --yellow: #d29922;
+    --accent-dim: rgba(255, 0, 122, 0.12);
+    --green: #00d395;
+    --green-dim: rgba(0, 211, 149, 0.12);
+    --blue: #4da2ff;
+    --blue-dim: rgba(77, 162, 255, 0.10);
+    --yellow: #f0b429;
+    --yellow-dim: rgba(240, 180, 41, 0.12);
+    --red: #ef4444;
+    --red-dim: rgba(239, 68, 68, 0.12);
+    --radius: 12px;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
     background: var(--bg);
     color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     min-height: 100vh;
-    padding: 24px;
   }
-  .header {
-    text-align: center;
-    margin-bottom: 32px;
-  }
-  .header h1 {
-    font-size: 28px;
-    font-weight: 700;
-    background: linear-gradient(135deg, var(--accent), var(--blue));
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
-  .header .subtitle {
-    color: var(--text-muted);
-    font-size: 14px;
-    margin-top: 8px;
-  }
-  .status-bar {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: 16px;
-    margin-bottom: 24px;
-    font-size: 13px;
-    color: var(--text-muted);
-  }
-  .status-dot {
-    width: 8px; height: 8px;
-    border-radius: 50%;
-    background: var(--green);
-    display: inline-block;
-    animation: pulse 2s infinite;
-  }
-  .status-dot.error { background: #f85149; }
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
-  }
-  .pools-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(520px, 1fr));
-    gap: 24px;
-    max-width: 1200px;
-    margin: 0 auto;
-  }
-  .pool-card {
-    background: var(--card-bg);
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 24px;
-    transition: border-color 0.2s;
-  }
-  .pool-card:hover { border-color: var(--accent); }
-  .pool-header {
+
+  /* Header */
+  .top-bar {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 32px;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 20px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    backdrop-filter: blur(12px);
   }
-  .pool-name {
-    font-size: 22px;
-    font-weight: 700;
-  }
-  .fee-badge {
-    background: rgba(255, 0, 122, 0.15);
-    color: var(--accent);
-    padding: 4px 12px;
-    border-radius: 20px;
-    font-size: 13px;
-    font-weight: 600;
-  }
-  .pool-stats {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
+  .logo {
+    display: flex;
+    align-items: center;
     gap: 12px;
-    margin-bottom: 20px;
   }
-  .stat-item {
-    background: rgba(255, 255, 255, 0.03);
+  .logo-icon {
+    width: 36px; height: 36px;
+    background: linear-gradient(135deg, var(--accent), #8b5cf6);
     border-radius: 10px;
-    padding: 12px;
-    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    font-weight: 800;
+    color: white;
   }
-  .stat-label {
-    font-size: 11px;
+  .logo-text {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+  }
+  .logo-text span { color: var(--text-muted); font-weight: 400; font-size: 14px; margin-left: 8px; }
+  .top-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+  .status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .status-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--green);
+    animation: pulse 2s infinite;
+  }
+  .status-dot.error { background: var(--red); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  .btn-refresh {
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 6px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.15s;
+  }
+  .btn-refresh:hover { border-color: var(--accent); color: var(--text); }
+
+  /* Main content */
+  .main {
+    max-width: 1440px;
+    margin: 0 auto;
+    padding: 24px 32px;
+  }
+
+  /* Summary cards */
+  .summary-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+  .summary-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+  }
+  .summary-label {
+    font-size: 12px;
     color: var(--text-muted);
     text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin-bottom: 4px;
+    letter-spacing: 0.6px;
+    margin-bottom: 6px;
   }
-  .stat-value {
-    font-size: 16px;
-    font-weight: 600;
+  .summary-value {
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
   }
-  .stat-value.price { color: var(--blue); }
-  .stat-value.tvl { color: var(--green); }
+  .summary-value.green { color: var(--green); }
+  .summary-value.blue { color: var(--blue); }
+  .summary-value.yellow { color: var(--yellow); }
+  .summary-value.accent { color: var(--accent); }
 
-  /* Metrics table */
-  .metrics-table {
+  /* Filter / sort */
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .filter-btn {
+    padding: 6px 16px;
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.15s;
+  }
+  .filter-btn:hover { border-color: var(--text-dim); color: var(--text); }
+  .filter-btn.active {
+    background: var(--accent-dim);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .sort-select {
+    margin-left: auto;
+    padding: 6px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-dim);
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  /* Pool table */
+  .pool-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    margin-bottom: 24px;
+  }
+  .pool-section-header {
+    padding: 14px 20px;
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+    font-size: 15px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .pair-badge {
+    font-size: 12px;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-weight: 500;
+  }
+  .pair-badge.btc { background: var(--yellow-dim); color: var(--yellow); }
+  .pair-badge.eth { background: var(--blue-dim); color: var(--blue); }
+  .pair-badge.stable { background: var(--green-dim); color: var(--green); }
+
+  table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 14px;
   }
-  .metrics-table th {
+  thead th {
     text-align: left;
-    padding: 10px 12px;
-    color: var(--text-muted);
-    font-weight: 500;
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    border-bottom: 1px solid var(--border);
-  }
-  .metrics-table td {
-    padding: 12px;
-    border-bottom: 1px solid rgba(48, 54, 61, 0.5);
-  }
-  .metrics-table tr:last-child td { border-bottom: none; }
-  .period-label {
+    padding: 10px 16px;
+    font-size: 11px;
     font-weight: 600;
     color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
   }
-  .apy-value {
-    font-weight: 700;
-    color: var(--green);
-  }
-  .apy-value.high { color: var(--yellow); }
-  .apy-value.very-high { color: #f85149; }
+  thead th:hover { color: var(--text-dim); }
+  thead th.right, td.right { text-align: right; }
 
-  .data-source {
-    text-align: right;
+  tbody tr {
+    transition: background 0.12s;
+  }
+  tbody tr:hover { background: rgba(255, 255, 255, 0.02); }
+  tbody td {
+    padding: 14px 16px;
+    font-size: 14px;
+    border-bottom: 1px solid rgba(38, 46, 58, 0.5);
+    white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+
+  .pool-name-cell {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .pool-pair {
+    font-weight: 600;
+    font-size: 14px;
+  }
+  .fee-tag {
     font-size: 11px;
-    color: var(--text-muted);
-    margin-top: 12px;
-    opacity: 0.6;
+    padding: 2px 8px;
+    border-radius: 6px;
+    background: var(--accent-dim);
+    color: var(--accent);
+    font-weight: 600;
   }
+  .version-tag {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-weight: 600;
+  }
+  .version-tag.v3 { background: rgba(77, 162, 255, 0.12); color: var(--blue); }
+  .version-tag.v4 { background: rgba(168, 85, 247, 0.15); color: #a855f7; }
+  .tvl-bar {
+    height: 4px;
+    border-radius: 2px;
+    background: var(--border);
+    margin-top: 4px;
+    overflow: hidden;
+  }
+  .tvl-bar-fill {
+    height: 100%;
+    border-radius: 2px;
+    background: linear-gradient(90deg, var(--green), var(--blue));
+    transition: width 0.5s;
+  }
+  .mono { font-family: 'SF Mono', 'Consolas', 'Monaco', monospace; font-size: 13px; }
+  .apy-cell {
+    font-weight: 700;
+    font-size: 14px;
+  }
+  .apy-cell.high { color: var(--yellow); }
+  .apy-cell.very-high { color: var(--red); }
+  .apy-cell.normal { color: var(--green); }
 
+  .volume-mini { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .pool-link {
+    color: var(--text-muted);
+    text-decoration: none;
+    font-size: 12px;
+    transition: color 0.15s;
+  }
+  .pool-link:hover { color: var(--accent); }
+
+  /* Loading & Error */
   .loading {
     text-align: center;
-    padding: 60px;
+    padding: 80px;
     color: var(--text-muted);
   }
   .spinner {
-    width: 32px; height: 32px;
+    width: 36px; height: 36px;
     border: 3px solid var(--border);
     border-top-color: var(--accent);
     border-radius: 50%;
-    animation: spin 0.8s linear infinite;
+    animation: spin 0.7s linear infinite;
     margin: 0 auto 16px;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  .error-msg {
-    background: rgba(248, 81, 73, 0.1);
-    border: 1px solid rgba(248, 81, 73, 0.3);
+  .error-toast {
+    background: var(--red-dim);
+    border: 1px solid rgba(239, 68, 68, 0.3);
     border-radius: 10px;
-    padding: 16px;
-    color: #f85149;
+    padding: 14px 20px;
+    color: var(--red);
     text-align: center;
     max-width: 600px;
-    margin: 20px auto;
+    margin: 16px auto;
+    font-size: 14px;
   }
 
-  @media (max-width: 600px) {
-    body { padding: 12px; }
-    .pools-grid { grid-template-columns: 1fr; }
-    .pool-stats { grid-template-columns: 1fr; }
-    .metrics-table { font-size: 13px; }
+  .footer {
+    text-align: center;
+    padding: 32px;
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+  .footer a { color: var(--text-dim); text-decoration: none; }
+  .footer a:hover { color: var(--accent); }
+
+  @media (max-width: 900px) {
+    .top-bar { padding: 12px 16px; }
+    .main { padding: 16px; }
+    .summary-row { grid-template-columns: repeat(2, 1fr); }
+    table { display: block; overflow-x: auto; }
+  }
+  @media (max-width: 500px) {
+    .summary-row { grid-template-columns: 1fr; }
+    .logo-text span { display: none; }
   }
 </style>
 </head>
 <body>
 
-<div class="header">
-  <h1>Uniswap V3 Pool Monitor</h1>
-  <div class="subtitle">Base Chain | Real-time Pool Analytics</div>
-</div>
-
-<div class="status-bar">
-  <span class="status-dot" id="statusDot"></span>
-  <span id="statusText">Loading...</span>
-  <span>|</span>
-  <span>Auto-refresh: 5 min</span>
-</div>
-
-<div id="content">
-  <div class="loading">
-    <div class="spinner"></div>
-    <div>Fetching pool data...</div>
+<div class="top-bar">
+  <div class="logo">
+    <div class="logo-icon">U</div>
+    <div class="logo-text">Pool Monitor <span>Uniswap V3/V4 &middot; Base</span></div>
+  </div>
+  <div class="top-right">
+    <div class="status-indicator">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText">Loading...</span>
+    </div>
+    <button class="btn-refresh" onclick="fetchData()">Refresh</button>
   </div>
 </div>
 
+<div class="main">
+  <div class="summary-row" id="summaryRow">
+    <div class="summary-card"><div class="summary-label">Total Pools</div><div class="summary-value" id="sumPools">-</div></div>
+    <div class="summary-card"><div class="summary-label">Total TVL</div><div class="summary-value green" id="sumTVL">-</div></div>
+    <div class="summary-card"><div class="summary-label">24h Volume</div><div class="summary-value blue" id="sumVol">-</div></div>
+    <div class="summary-card"><div class="summary-label">24h Fees</div><div class="summary-value yellow" id="sumFees">-</div></div>
+  </div>
+
+  <div class="controls" id="controls">
+    <button class="filter-btn active" data-filter="all">All Pairs</button>
+    <button class="filter-btn" data-filter="cbBTC">cbBTC</button>
+    <button class="filter-btn" data-filter="ETH">ETH/WETH</button>
+    <button class="filter-btn" data-filter="stable">Stablecoin</button>
+    <span style="color:var(--border);margin:0 4px">|</span>
+    <button class="filter-btn" data-filter="V3">V3</button>
+    <button class="filter-btn" data-filter="V4">V4</button>
+    <select class="sort-select" id="sortSelect">
+      <option value="tvl">Sort by TVL</option>
+      <option value="apy1d">Sort by APY (24h)</option>
+      <option value="apy7d">Sort by APY (7d)</option>
+      <option value="apy30d">Sort by APY (30d)</option>
+      <option value="volume">Sort by Volume (24h)</option>
+      <option value="fees">Sort by Fees (24h)</option>
+    </select>
+  </div>
+
+  <div id="content">
+    <div class="loading">
+      <div class="spinner"></div>
+      <div>Fetching pool data...</div>
+    </div>
+  </div>
+</div>
+
+<div class="footer">
+  Data from <a href="https://thegraph.com" target="_blank">The Graph</a> &middot;
+  Auto-refresh every 5 min &middot;
+  <span id="dataSourceLabel"></span>
+</div>
+
 <script>
-const REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
+const REFRESH_INTERVAL = 5 * 60 * 1000;
+let poolsData = [];
 
-function formatUSD(value) {
-  if (value >= 1e9) return '$' + (value / 1e9).toFixed(2) + 'B';
-  if (value >= 1e6) return '$' + (value / 1e6).toFixed(2) + 'M';
-  if (value >= 1e3) return '$' + (value / 1e3).toFixed(2) + 'K';
-  return '$' + value.toFixed(2);
+function fmt(v) {
+  if (v >= 1e9) return '$' + (v / 1e9).toFixed(2) + 'B';
+  if (v >= 1e6) return '$' + (v / 1e6).toFixed(2) + 'M';
+  if (v >= 1e3) return '$' + (v / 1e3).toFixed(1) + 'K';
+  if (v >= 1) return '$' + v.toFixed(2);
+  return '$' + v.toFixed(4);
 }
 
-function formatPrice(value, token0, token1) {
-  if (value === 0) return '-';
-  // For stablecoin pairs show more decimals
-  if (['USDC', 'USDT', 'DAI'].includes(token0) && ['USDC', 'USDT', 'DAI'].includes(token1)) {
-    return value.toFixed(6);
+function fmtCompact(v) {
+  if (v >= 1e6) return (v / 1e6).toFixed(1) + 'M';
+  if (v >= 1e3) return (v / 1e3).toFixed(1) + 'K';
+  return v.toFixed(0);
+}
+
+function apyCls(v) {
+  if (v >= 100) return 'apy-cell very-high';
+  if (v >= 20) return 'apy-cell high';
+  return 'apy-cell normal';
+}
+
+function pairType(pool) {
+  const t0 = pool.token0, t1 = pool.token1;
+  if (t0 === 'cbBTC' || t1 === 'cbBTC') return 'btc';
+  if (t0 === 'WETH' || t1 === 'WETH' || t0 === 'ETH' || t1 === 'ETH') return 'eth';
+  return 'stable';
+}
+
+function pairLabel(type) {
+  if (type === 'btc') return '<span class="pair-badge btc">BTC</span>';
+  if (type === 'eth') return '<span class="pair-badge eth">ETH</span>';
+  return '<span class="pair-badge stable">Stable</span>';
+}
+
+function getMaxTVL(pools) {
+  return Math.max(...pools.map(p => p.tvl_usd), 1);
+}
+
+function matchFilter(pool, filter) {
+  if (filter === 'all') return true;
+  if (filter === 'V3') return (pool.version || 'V3') === 'V3';
+  if (filter === 'V4') return pool.version === 'V4';
+  if (filter === 'cbBTC') return pool.token0 === 'cbBTC' || pool.token1 === 'cbBTC';
+  if (filter === 'ETH') {
+    const hasEth = ['WETH','ETH'].includes(pool.token0) || ['WETH','ETH'].includes(pool.token1);
+    const hasBtc = pool.token0 === 'cbBTC' || pool.token1 === 'cbBTC';
+    return hasEth && !hasBtc;
   }
-  if (value >= 1000) return value.toFixed(2);
-  if (value >= 1) return value.toFixed(4);
-  return value.toFixed(8);
-}
-
-function apyClass(apy) {
-  if (apy >= 100) return 'apy-value very-high';
-  if (apy >= 20) return 'apy-value high';
-  return 'apy-value';
-}
-
-function renderPools(data) {
-  const pools = data.pools || [];
-  if (pools.length === 0) {
-    return '<div class="error-msg">No pool data available</div>';
+  if (filter === 'stable') {
+    const stables = ['USDC','USDT','DAI'];
+    return stables.includes(pool.token0) && stables.includes(pool.token1);
   }
-
-  return '<div class="pools-grid">' + pools.map(pool => {
-    const m = pool.metrics;
-    return `
-      <div class="pool-card">
-        <div class="pool-header">
-          <span class="pool-name">${pool.name}</span>
-          <span class="fee-badge">Fee ${pool.fee_tier}</span>
-        </div>
-
-        <div class="pool-stats">
-          <div class="stat-item">
-            <div class="stat-label">${pool.token0} Price (USD)</div>
-            <div class="stat-value price">${pool.base_price_usd ? '$' + Number(pool.base_price_usd).toLocaleString(undefined, {maximumFractionDigits: 2}) : '-'}</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-label">Price (${pool.token0}/${pool.token1})</div>
-            <div class="stat-value price">${formatPrice(pool.price_ratio, pool.token0, pool.token1)}</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-label">TVL</div>
-            <div class="stat-value tvl">${formatUSD(pool.tvl_usd)}</div>
-          </div>
-        </div>
-
-        <table class="metrics-table">
-          <thead>
-            <tr>
-              <th>Period</th>
-              <th>Volume</th>
-              <th>Fees</th>
-              <th>APY</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${['1d', '7d', '30d'].map(period => `
-              <tr>
-                <td class="period-label">${period}</td>
-                <td>${formatUSD(m[period].volume)}</td>
-                <td>${formatUSD(m[period].fees)}</td>
-                <td class="${apyClass(m[period].apy)}">${m[period].apy.toFixed(2)}%</td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-
-        <div class="data-source">
-          Source: ${pool.data_source} |
-          <a href="https://www.geckoterminal.com/base/pools/${pool.address}" target="_blank"
-             style="color: var(--text-muted);">View on GeckoTerminal</a>
-        </div>
-      </div>
-    `;
-  }).join('') + '</div>';
+  return true;
 }
+
+function sortPools(pools, key) {
+  const sorted = [...pools];
+  sorted.sort((a, b) => {
+    if (key === 'tvl') return b.tvl_usd - a.tvl_usd;
+    if (key === 'apy1d') return b.metrics['1d'].apy - a.metrics['1d'].apy;
+    if (key === 'apy7d') return b.metrics['7d'].apy - a.metrics['7d'].apy;
+    if (key === 'apy30d') return b.metrics['30d'].apy - a.metrics['30d'].apy;
+    if (key === 'volume') return b.metrics['1d'].volume - a.metrics['1d'].volume;
+    if (key === 'fees') return b.metrics['1d'].fees - a.metrics['1d'].fees;
+    return 0;
+  });
+  return sorted;
+}
+
+function renderTable(pools) {
+  if (!pools.length) return '<div class="error-toast">No pools match the selected filter</div>';
+  const maxTVL = getMaxTVL(pools);
+
+  let html = '<div class="pool-section"><table><thead><tr>';
+  html += '<th>Pool</th><th>Fee</th>';
+  html += '<th class="right">TVL</th>';
+  html += '<th class="right">Volume 24h</th>';
+  html += '<th class="right">Fees 24h</th>';
+  html += '<th class="right">APY 24h</th>';
+  html += '<th class="right">Vol 7d</th>';
+  html += '<th class="right">Fees 7d</th>';
+  html += '<th class="right">APY 7d</th>';
+  html += '<th class="right">APY 30d</th>';
+  html += '<th></th>';
+  html += '</tr></thead><tbody>';
+
+  for (const p of pools) {
+    const m = p.metrics;
+    const type = pairType(p);
+    const tvlPct = (p.tvl_usd / maxTVL * 100).toFixed(1);
+    html += `<tr>
+      <td>
+        <div class="pool-name-cell">
+          ${pairLabel(type)}
+          <span class="pool-pair">${p.token0} / ${p.token1}</span>
+          <span class="version-tag ${(p.version||'V3').toLowerCase()}">${p.version||'V3'}</span>
+        </div>
+      </td>
+      <td><span class="fee-tag">${p.fee_tier}</span></td>
+      <td class="right">
+        <div class="mono">${fmt(p.tvl_usd)}</div>
+        <div class="tvl-bar"><div class="tvl-bar-fill" style="width:${tvlPct}%"></div></div>
+      </td>
+      <td class="right mono">${fmt(m['1d'].volume)}</td>
+      <td class="right mono">${fmt(m['1d'].fees)}</td>
+      <td class="right ${apyCls(m['1d'].apy)}">${m['1d'].apy.toFixed(2)}%</td>
+      <td class="right mono">${fmt(m['7d'].volume)}</td>
+      <td class="right mono">${fmt(m['7d'].fees)}</td>
+      <td class="right ${apyCls(m['7d'].apy)}">${m['7d'].apy.toFixed(2)}%</td>
+      <td class="right ${apyCls(m['30d'].apy)}">${m['30d'].apy.toFixed(2)}%</td>
+      <td class="right">
+        <a class="pool-link" href="https://app.uniswap.org/explore/pools/base/${p.address}" target="_blank">View</a>
+      </td>
+    </tr>`;
+  }
+  html += '</tbody></table></div>';
+  return html;
+}
+
+function updateSummary(pools) {
+  document.getElementById('sumPools').textContent = pools.length;
+  const tvl = pools.reduce((s, p) => s + p.tvl_usd, 0);
+  const vol = pools.reduce((s, p) => s + p.metrics['1d'].volume, 0);
+  const fees = pools.reduce((s, p) => s + p.metrics['1d'].fees, 0);
+  document.getElementById('sumTVL').textContent = fmt(tvl);
+  document.getElementById('sumVol').textContent = fmt(vol);
+  document.getElementById('sumFees').textContent = fmt(fees);
+}
+
+function render() {
+  // Get active pair filter (all/cbBTC/ETH/stable)
+  const pairBtn = document.querySelector('.filter-btn.active:not([data-filter="V3"]):not([data-filter="V4"])');
+  const pairFilter = pairBtn?.dataset.filter || 'all';
+  // Get active version filters
+  const v3Active = document.querySelector('.filter-btn[data-filter="V3"]').classList.contains('active');
+  const v4Active = document.querySelector('.filter-btn[data-filter="V4"]').classList.contains('active');
+
+  const sortKey = document.getElementById('sortSelect').value;
+  let filtered = poolsData.filter(p => matchFilter(p, pairFilter));
+  // Apply version filter (if either is active, show only that version; if both or neither, show all)
+  if (v3Active && !v4Active) filtered = filtered.filter(p => (p.version || 'V3') === 'V3');
+  else if (v4Active && !v3Active) filtered = filtered.filter(p => p.version === 'V4');
+
+  const sorted = sortPools(filtered, sortKey);
+  document.getElementById('content').innerHTML = renderTable(sorted);
+  updateSummary(poolsData);
+}
+
+// Filter buttons — pair filters and version filters are independent groups
+document.getElementById('controls').addEventListener('click', e => {
+  if (!e.target.classList.contains('filter-btn')) return;
+  const f = e.target.dataset.filter;
+  const isVersion = f === 'V3' || f === 'V4';
+  const isPair = !isVersion;
+
+  if (isPair) {
+    // Deactivate other pair filters
+    document.querySelectorAll('.filter-btn').forEach(b => {
+      const bf = b.dataset.filter;
+      if (bf !== 'V3' && bf !== 'V4') b.classList.remove('active');
+    });
+    e.target.classList.add('active');
+  } else {
+    // Toggle version filter (allow deselect)
+    e.target.classList.toggle('active');
+  }
+  render();
+});
+document.getElementById('sortSelect').addEventListener('change', render);
 
 async function fetchData() {
   const dot = document.getElementById('statusDot');
   const statusText = document.getElementById('statusText');
-  const content = document.getElementById('content');
 
   try {
     const resp = await fetch('/api/pools');
     const data = await resp.json();
+    if (!data.success) throw new Error(data.error || 'Unknown error');
 
-    if (!data.success) {
-      throw new Error(data.error || 'Unknown error');
-    }
+    poolsData = data.pools || [];
+    render();
 
-    content.innerHTML = renderPools(data);
     dot.classList.remove('error');
     const ts = new Date(data.timestamp * 1000);
-    statusText.textContent = 'Last updated: ' + ts.toLocaleTimeString();
+    statusText.textContent = ts.toLocaleTimeString();
 
-    if (data.errors && data.errors.length > 0) {
-      content.innerHTML += data.errors.map(e =>
-        `<div class="error-msg">${e.pool}: ${e.error}</div>`
+    if (data.pools.length > 0) {
+      document.getElementById('dataSourceLabel').textContent = 'Source: ' + data.pools[0].data_source;
+    }
+
+    if (data.errors?.length) {
+      document.getElementById('content').innerHTML += data.errors.map(e =>
+        `<div class="error-toast">${e.pool}: ${e.error}</div>`
       ).join('');
     }
   } catch (err) {
     dot.classList.add('error');
-    statusText.textContent = 'Error fetching data';
-    content.innerHTML = `<div class="error-msg">
-      Failed to load pool data: ${err.message}<br>
-      <small>Will retry in 5 minutes. Check console for details.</small>
-    </div>`;
-    console.error('Fetch error:', err);
+    statusText.textContent = 'Error';
+    document.getElementById('content').innerHTML =
+      `<div class="error-toast">Failed to load: ${err.message}</div>`;
+    console.error(err);
   }
 }
 
-// Initial load
 fetchData();
-// Auto refresh
 setInterval(fetchData, REFRESH_INTERVAL);
 </script>
 </body>

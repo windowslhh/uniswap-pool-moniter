@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: uniswap-pool-monitor
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT
+    envVars:
+      - key: THEGRAPH_API_KEY
+        sync: false
+      - key: DATA_SOURCE
+        value: thegraph
+      - key: FLASK_PORT
+        value: 5000

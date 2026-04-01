@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "pool-monitor",
+      "runtimeExecutable": ".venv/bin/python3",
+      "runtimeArgs": ["app.py"],
+      "port": 5001,
+      "env": {
+        "FLASK_PORT": "5001"
+      }
+    }
+  ]
+}
