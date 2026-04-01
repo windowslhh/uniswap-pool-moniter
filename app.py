@@ -133,8 +133,9 @@ BATCH_SIZE = 5  # pools per GraphQL request
 
 def _build_batch_query(pool_configs, offset=0):
     """Build a batched GraphQL query for pools using Uniswap official schema.
-    Fetches: pool info, 24 hourly snapshots (rolling 24h), 30 daily snapshots (7d/30d).
+    Fetches: pool info, hourly snapshots from last 24h, 30 daily snapshots (7d/30d).
     """
+    ts_24h_ago = int(time.time()) - 86400
     parts = []
     for i, p in enumerate(pool_configs):
         idx = i + offset
@@ -148,7 +149,7 @@ def _build_batch_query(pool_configs, offset=0):
         parts.append(
             f'hour{idx}: poolHourDatas('
             f'first: 24, orderBy: periodStartUnix, orderDirection: desc, '
-            f'where: {{pool: "{pid}"}}) '
+            f'where: {{pool: "{pid}", periodStartUnix_gte: {ts_24h_ago}}}) '
             f"{{ periodStartUnix volumeUSD feesUSD tvlUSD }}"
         )
         parts.append(
@@ -175,9 +176,9 @@ def _parse_pool_result(pool_data, hour_data, day_data, pool_config, version):
     def sum_field(data, field, n):
         return sum(float(d.get(field, 0)) for d in data[:n])
 
-    # Rolling 24h from hourly data
-    volume_1d = sum_field(hours, "volumeUSD", 24)
-    fees_1d = sum_field(hours, "feesUSD", 24)
+    # Rolling 24h from hourly data (already filtered by periodStartUnix_gte)
+    volume_1d = sum(float(h.get("volumeUSD", 0)) for h in hours)
+    fees_1d = sum(float(h.get("feesUSD", 0)) for h in hours)
 
     # 7d and 30d from daily data
     volume_7d = sum_field(days, "volumeUSD", 7)
