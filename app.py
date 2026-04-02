@@ -337,7 +337,7 @@ def fetch_all_pools():
     # Override TVL with accurate on-chain balanceOf data
     if results:
         try:
-            token_prices = onchain_tvl.fetch_token_prices_from_subgraph(results)
+            token_prices = onchain_tvl.fetch_token_prices_onchain(_session)
             all_pools_config = POOLS + POOLS_V4
             tvl_map = onchain_tvl.fetch_onchain_tvl(
                 all_pools_config, token_prices, _session

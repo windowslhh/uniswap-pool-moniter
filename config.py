@@ -208,6 +208,29 @@ TOKENS = {
     "USDT": {"address": "0xfde4c96c8593536e31f229ea8f37b2ada2699bb2", "decimals": 6},
 }
 
+# Price oracle pools — high-liquidity stablecoin pairs for on-chain USD price derivation
+# slot0() is called on these pools to read sqrtPriceX96 and compute token USD prices
+PRICE_ORACLE_POOLS = [
+    {
+        "address": "0xd0b53d9277642d899df5c87a3966a349a798f224",  # WETH/USDC 0.05%
+        "token0": "WETH", "token0_decimals": 18,
+        "token1": "USDC", "token1_decimals": 6,
+        "derive": "WETH",
+    },
+    {
+        "address": "0xfbb6eed8e7aa03b138556eedaf5d271a5e1e43ef",  # cbBTC/USDC 0.05%
+        "token0": "USDC", "token0_decimals": 6,
+        "token1": "cbBTC", "token1_decimals": 8,
+        "derive": "cbBTC",
+    },
+    {
+        "address": "0xd56da2b74ba826f19015e6b7dd9dae1903e85da1",  # USDC/USDT 0.01%
+        "token0": "USDC", "token0_decimals": 6,
+        "token1": "USDT", "token1_decimals": 6,
+        "derive": "USDT",
+    },
+]
+
 # Cache TTL in seconds
 CACHE_TTL = int(os.getenv("CACHE_TTL", "120"))
 
