@@ -1252,7 +1252,7 @@ async function loadChart(period) {
   currentPeriod = period || currentPeriod;
 
   // Update active tab
-  document.querySelectorAll('.period-tab').forEach(t => {
+  document.querySelectorAll('#chartSection .period-tab').forEach(t => {
     t.classList.toggle('active', t.dataset.period === currentPeriod);
   });
 
@@ -1288,8 +1288,12 @@ async function loadChart(period) {
     buildCharts(data);
   } catch (err) {
     loading.style.display = 'none';
-    apyWrap.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:20px">Chart unavailable: ' + err.message + '</div>';
+    apyWrap.innerHTML = '<canvas id="apyChart"></canvas>';
+    feeWrap.innerHTML = '<canvas id="feeChart"></canvas>';
     apyWrap.style.display = 'block';
+    feeWrap.style.display = 'block';
+    apyWrap.insertAdjacentHTML('beforeend',
+      '<div style="color:var(--text-muted);text-align:center;padding:10px;font-size:13px">Chart unavailable: ' + err.message + '</div>');
   }
 }
 
@@ -1433,8 +1437,12 @@ async function loadPoolChart(period) {
     buildPoolCharts(data);
   } catch (err) {
     loading.style.display = 'none';
-    apyWrap.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:20px">' + err.message + '</div>';
+    apyWrap.innerHTML = '<canvas id="poolApyChart"></canvas>';
+    feeWrap.innerHTML = '<canvas id="poolFeeChart"></canvas>';
     apyWrap.style.display = 'block';
+    feeWrap.style.display = 'block';
+    apyWrap.insertAdjacentHTML('beforeend',
+      '<div style="color:var(--text-muted);text-align:center;padding:10px;font-size:13px">' + err.message + '</div>');
   }
 }
 
