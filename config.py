@@ -198,10 +198,11 @@ POOLS_V4 = [
 
 # Token addresses on Base (lowercase, for TheGraph queries)
 TOKENS = {
-    "cbBTC": "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf",
-    "WETH": "0x4200000000000000000000000000000000000006",
-    "USDC": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
-    "USDT": "0xfde4c96c8593536e31f229ea8f37b2ada2699bb2",
+    "cbBTC": {"address": "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf", "decimals": 8},
+    "WETH": {"address": "0x4200000000000000000000000000000000000006", "decimals": 18},
+    "ETH": {"address": "0x4200000000000000000000000000000000000006", "decimals": 18},
+    "USDC": {"address": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", "decimals": 6},
+    "USDT": {"address": "0xfde4c96c8593536e31f229ea8f37b2ada2699bb2", "decimals": 6},
 }
 
 # Cache TTL in seconds

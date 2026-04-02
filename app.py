@@ -4,7 +4,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, request
 from config import (
     DATA_SOURCE,
     GECKO_BASE_URL,
@@ -17,6 +17,7 @@ from config import (
     CACHE_TTL,
     FLASK_PORT,
 )
+import lp_math
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -143,14 +144,15 @@ def _build_batch_query(pool_configs, offset=0):
         parts.append(
             f'pool{idx}: pool(id: "{pid}") '
             f"{{ id feeTier totalValueLockedUSD volumeUSD feesUSD "
-            f"token0 {{ symbol }} token1 {{ symbol }} "
+            f"tick sqrtPrice liquidity "
+            f"token0 {{ symbol decimals }} token1 {{ symbol decimals }} "
             f"token0Price token1Price }}"
         )
         parts.append(
             f'hour{idx}: poolHourDatas('
             f'first: 24, orderBy: periodStartUnix, orderDirection: desc, '
             f'where: {{pool: "{pid}", periodStartUnix_gte: {ts_24h_ago}}}) '
-            f"{{ periodStartUnix volumeUSD feesUSD tvlUSD }}"
+            f"{{ periodStartUnix volumeUSD feesUSD tvlUSD tick liquidity }}"
         )
         parts.append(
             f'day{idx}: poolDayDatas('
@@ -205,6 +207,13 @@ def _parse_pool_result(pool_data, hour_data, day_data, pool_config, version):
         "base_price_usd": 0,
         "quote_price_usd": 0,
         "tvl_usd": tvl,
+        "tick": pool_data.get("tick"),
+        "sqrtPrice": pool_data.get("sqrtPrice"),
+        "liquidity": pool_data.get("liquidity"),
+        "token0Price": float(pool_data.get("token0Price", 0)),
+        "token1Price": float(pool_data.get("token1Price", 0)),
+        "token0_decimals": int(pool_data.get("token0", {}).get("decimals", 18)),
+        "token1_decimals": int(pool_data.get("token1", {}).get("decimals", 18)),
         "metrics": {
             "1d": {
                 "volume": volume_1d,
@@ -319,6 +328,42 @@ def fetch_all_pools():
 
 
 # ============================================================
+# Position Estimate — Concentrated Liquidity Calculator
+# ============================================================
+
+def _build_estimate_query(pool_address, hours=168):
+    """Build GraphQL query for position estimation with historical hourly data."""
+    return (
+        '{ pool(id: "%s") '
+        '{ id feeTier totalValueLockedUSD tick sqrtPrice liquidity '
+        'token0 { symbol decimals } token1 { symbol decimals } '
+        'token0Price token1Price } '
+        'poolHourDatas(first: %d, orderBy: periodStartUnix, orderDirection: desc, '
+        'where: {pool: "%s"}) '
+        '{ periodStartUnix tick liquidity feesUSD volumeUSD tvlUSD } }'
+    ) % (pool_address, min(hours, 1000), pool_address)
+
+
+def _resolve_token_usd_prices(t0_sym, t1_sym, token0_price_in_token1,
+                               token1_price_in_token0, current_price, tvl):
+    """Determine USD prices for token0 and token1.
+
+    Heuristic: if one token is a stablecoin, its USD price is 1.
+    For non-stable pairs (e.g., WETH/cbBTC), estimate from relative prices.
+    """
+    stables = {"USDC", "USDT", "DAI"}
+
+    if t1_sym in stables:
+        return token0_price_in_token1, 1.0
+    elif t0_sym in stables:
+        return 1.0, token1_price_in_token0
+    else:
+        # Neither is stable — use relative pricing
+        # Assume token0 as base unit = 1, token1 = current_price
+        return 1.0, current_price
+
+
+# ============================================================
 # Flask Routes
 # ============================================================
 
@@ -334,6 +379,188 @@ def api_pools():
         return jsonify({"success": True, **data})
     except Exception as e:
         logger.exception("Failed to fetch pool data")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/estimate", methods=["POST"])
+def api_estimate():
+    """Estimate position-level APY for a concentrated liquidity position."""
+    if DATA_SOURCE != "thegraph" or not THEGRAPH_API_KEY:
+        return jsonify({
+            "success": False,
+            "error": "Calculator requires TheGraph data source"
+        }), 400
+
+    try:
+        body = request.get_json()
+        if not body:
+            return jsonify({"success": False, "error": "Request body required"}), 400
+
+        pool_address = body.get("pool_address", "").strip().lower()
+        price_low = float(body.get("price_low", 0))
+        price_high = float(body.get("price_high", 0))
+        capital_usd = float(body.get("capital_usd", 0))
+        hours = int(body.get("hours", 168))
+        inverted = body.get("inverted", False)
+
+        if not pool_address:
+            return jsonify({"success": False, "error": "pool_address required"}), 400
+        if price_low <= 0 or price_high <= 0:
+            return jsonify({"success": False, "error": "Prices must be positive"}), 400
+        if price_low >= price_high:
+            return jsonify({"success": False, "error": "price_low must be < price_high"}), 400
+        if capital_usd <= 0:
+            return jsonify({"success": False, "error": "capital must be positive"}), 400
+
+        hours = max(24, min(hours, 720))
+
+        # Find pool config and subgraph URL
+        pool_config = None
+        subgraph_url = None
+        version = None
+        for pc in POOLS:
+            if pc["address"] == pool_address:
+                pool_config, subgraph_url, version = pc, SUBGRAPH_URL, "V3"
+                break
+        if not pool_config:
+            for pc in POOLS_V4:
+                if pc["address"] == pool_address or pc["address"][:42] == pool_address:
+                    pool_config, subgraph_url, version = pc, SUBGRAPH_URL_V4, "V4"
+                    pool_address = pc["address"]
+                    break
+        if not pool_config:
+            return jsonify({"success": False, "error": "Pool not found"}), 404
+
+        # Query TheGraph
+        query = _build_estimate_query(pool_address, hours)
+        resp = _session.post(subgraph_url, json={"query": query}, timeout=90)
+        resp.raise_for_status()
+        result = resp.json()
+        if "errors" in result:
+            return jsonify({"success": False, "error": str(result["errors"])}), 500
+
+        data = result["data"]
+        pool_data = data.get("pool")
+        hourly_data = data.get("poolHourDatas", [])
+        if not pool_data:
+            return jsonify({"success": False, "error": "Pool not found in subgraph"}), 404
+
+        # Parse pool state
+        current_tick = int(pool_data.get("tick", 0))
+        sqrt_price_x96 = pool_data.get("sqrtPrice", "0")
+        pool_liquidity = int(pool_data.get("liquidity", 0))
+        tvl = float(pool_data.get("totalValueLockedUSD", 0))
+        t0_sym = pool_data.get("token0", {}).get("symbol", "")
+        t1_sym = pool_data.get("token1", {}).get("symbol", "")
+        token0_price_in_t1 = float(pool_data.get("token0Price", 0))
+        token1_price_in_t0 = float(pool_data.get("token1Price", 0))
+        current_price = lp_math.sqrt_price_x96_to_price(sqrt_price_x96)
+
+        # Convert user's display prices to internal (token1/token0) prices
+        if inverted:
+            internal_price_low = 1.0 / price_high if price_high > 0 else 0
+            internal_price_high = 1.0 / price_low if price_low > 0 else 0
+        else:
+            internal_price_low = price_low
+            internal_price_high = price_high
+
+        tick_lower = lp_math.price_to_tick(internal_price_low)
+        tick_upper = lp_math.price_to_tick(internal_price_high)
+        if tick_lower > tick_upper:
+            tick_lower, tick_upper = tick_upper, tick_lower
+
+        # Determine token USD prices
+        token0_usd, token1_usd = _resolve_token_usd_prices(
+            t0_sym, t1_sym, token0_price_in_t1, token1_price_in_t0,
+            current_price, tvl
+        )
+
+        # Calculate user's liquidity from capital
+        user_L, amount0, amount1 = lp_math.capital_to_liquidity(
+            capital_usd, current_price, internal_price_low, internal_price_high,
+            token0_usd, token1_usd
+        )
+        position_value = amount0 * token0_usd + amount1 * token1_usd
+
+        # Fee share at current state
+        is_in_range = tick_lower <= current_tick < tick_upper
+        fee_share = user_L / (pool_liquidity + user_L) if pool_liquidity > 0 and is_in_range else 0
+
+        # Check if hourly data has tick/liquidity fields
+        has_tick_data = hourly_data and hourly_data[0].get("tick") is not None
+        has_liq_data = hourly_data and hourly_data[0].get("liquidity") is not None
+
+        if has_tick_data and has_liq_data:
+            # Precise: per-hour fee accumulation with time-in-range
+            estimate = lp_math.estimate_position_apy(
+                user_L, hourly_data, tick_lower, tick_upper, position_value
+            )
+        else:
+            # Fallback: pool-level fees with current liquidity
+            total_fees = sum(float(h.get("feesUSD", 0)) for h in hourly_data)
+            total_h = len(hourly_data)
+            daily_pool_fees = (total_fees / total_h * 24) if total_h > 0 else 0
+            daily_pos_fees = daily_pool_fees * fee_share
+            apy = (daily_pos_fees / position_value * 365 * 100) if position_value > 0 else 0
+            estimate = {
+                "apy": round(apy, 2),
+                "time_in_range": None,
+                "total_fees": round(total_fees * fee_share, 4),
+                "daily_fees": round(daily_pos_fees, 4),
+                "weekly_fees": round(daily_pos_fees * 7, 4),
+                "hours_analyzed": total_h,
+                "hours_in_range": None,
+                "fallback": True,
+            }
+
+        # IL estimate
+        il = None
+        if has_tick_data and len(hourly_data) > 1:
+            oldest_tick = hourly_data[-1].get("tick")
+            if oldest_tick is not None:
+                oldest_price = lp_math.tick_to_price(int(oldest_tick))
+                il = lp_math.calculate_impermanent_loss(
+                    oldest_price, current_price,
+                    internal_price_low, internal_price_high
+                )
+
+        # Display price
+        display_price = (1.0 / current_price if current_price > 0 else 0) if inverted else current_price
+
+        display_addr = pool_config["address"][:42] if version == "V4" else pool_config["address"]
+
+        return jsonify({
+            "success": True,
+            "pool": {
+                "address": display_addr,
+                "name": pool_config["name"],
+                "fee_tier": f"{pool_config['fee_tier']}%",
+                "token0": t0_sym,
+                "token1": t1_sym,
+                "current_price": display_price,
+                "current_tick": current_tick,
+                "tvl_usd": tvl,
+                "version": version,
+            },
+            "position": {
+                "capital_usd": capital_usd,
+                "amount_token0": round(amount0, 8),
+                "amount_token1": round(amount1, 8),
+                "liquidity": str(int(user_L)) if user_L > 0 else "0",
+                "fee_share_pct": round(fee_share * 100, 6),
+                "position_value_usd": round(position_value, 2),
+                "tick_lower": tick_lower,
+                "tick_upper": tick_upper,
+                "in_range": is_in_range,
+            },
+            "estimate": estimate,
+            "impermanent_loss": il,
+        })
+
+    except (KeyError, ValueError) as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+    except Exception as e:
+        logger.exception("Estimate calculation failed")
         return jsonify({"success": False, "error": str(e)}), 500
 
 

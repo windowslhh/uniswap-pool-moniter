@@ -336,6 +336,121 @@
     .summary-row { grid-template-columns: 1fr; }
     .logo-text span { display: none; }
   }
+
+  /* Calculator Modal */
+  .modal-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+    backdrop-filter: blur(4px);
+  }
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    width: 520px;
+    max-width: 95vw;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+  .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  .modal-header h3 { font-size: 16px; font-weight: 700; }
+  .modal-close {
+    background: none; border: none;
+    color: var(--text-muted); font-size: 24px;
+    cursor: pointer; padding: 4px 8px; border-radius: 6px;
+  }
+  .modal-close:hover { color: var(--text); background: var(--card); }
+  .modal-body { padding: 24px; }
+
+  .calc-info {
+    margin-bottom: 20px;
+    padding: 14px 16px;
+    background: var(--card);
+    border-radius: 10px;
+  }
+  .calc-price { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+  .calc-pool-info { font-size: 12px; color: var(--text-muted); }
+
+  .calc-inputs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .input-row label {
+    display: block; font-size: 12px; color: var(--text-muted);
+    margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .input-row input, .input-row select {
+    width: 100%; padding: 10px 12px;
+    border-radius: 8px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--text);
+    font-size: 14px; font-family: 'SF Mono', 'Consolas', monospace;
+  }
+  .input-row input:focus, .input-row select:focus {
+    outline: none; border-color: var(--accent);
+  }
+  .calc-submit {
+    width: 100%; padding: 12px; border-radius: 10px; border: none;
+    background: linear-gradient(135deg, var(--accent), #8b5cf6);
+    color: white; font-size: 14px; font-weight: 600;
+    cursor: pointer; transition: opacity 0.15s; margin-bottom: 20px;
+  }
+  .calc-submit:hover { opacity: 0.9; }
+  .calc-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .calc-btn {
+    background: var(--card); border: 1px solid var(--border);
+    color: var(--text-dim); padding: 4px 10px; border-radius: 6px;
+    cursor: pointer; font-size: 12px; margin-right: 8px; transition: all 0.15s;
+  }
+  .calc-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .calc-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+  .result-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 10px; margin-bottom: 16px;
+  }
+  .result-card {
+    background: var(--card); border-radius: 10px;
+    padding: 14px; text-align: center;
+  }
+  .result-card.main {
+    grid-column: span 3;
+    background: var(--accent-dim);
+    border: 1px solid rgba(255, 0, 122, 0.2);
+  }
+  .result-label {
+    font-size: 11px; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;
+  }
+  .result-value {
+    font-size: 18px; font-weight: 700;
+    font-family: 'SF Mono', 'Consolas', monospace;
+  }
+  .result-card.main .result-value { font-size: 28px; color: var(--accent); }
+
+  .result-details { border-top: 1px solid var(--border); padding-top: 14px; }
+  .detail-row {
+    display: flex; justify-content: space-between;
+    padding: 8px 0; font-size: 13px; color: var(--text-dim);
+    border-bottom: 1px solid rgba(38, 46, 58, 0.4);
+  }
+  .detail-row:last-child { border-bottom: none; }
+  .detail-row span:last-child {
+    font-family: 'SF Mono', 'Consolas', monospace; color: var(--text);
+  }
 </style>
 </head>
 <body>
@@ -392,6 +507,104 @@
   Data from <a href="https://thegraph.com" target="_blank">The Graph</a> &middot;
   Auto-refresh every 5 min &middot;
   <span id="dataSourceLabel"></span>
+</div>
+
+<!-- Position Calculator Modal -->
+<div class="modal-overlay" id="calcModal" style="display:none" onclick="if(event.target===this)closeCalc()">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="calcTitle">Position Calculator</h3>
+      <button class="modal-close" onclick="closeCalc()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="calc-info">
+        <div class="calc-price">
+          Current Price: <span class="mono" id="calcCurrentPrice">-</span>
+          <span style="color:var(--text-muted);font-size:13px" id="calcPriceLabel"></span>
+        </div>
+        <div class="calc-pool-info" id="calcPoolInfo"></div>
+      </div>
+
+      <div class="calc-inputs">
+        <div class="input-row">
+          <label>Min Price</label>
+          <input type="number" id="calcMinPrice" step="any" placeholder="Lower bound">
+        </div>
+        <div class="input-row">
+          <label>Max Price</label>
+          <input type="number" id="calcMaxPrice" step="any" placeholder="Upper bound">
+        </div>
+        <div class="input-row">
+          <label>Capital (USD)</label>
+          <input type="number" id="calcCapital" step="any" value="10000" placeholder="USD amount">
+        </div>
+        <div class="input-row">
+          <label>Lookback</label>
+          <select id="calcHours">
+            <option value="168">7 days</option>
+            <option value="720">30 days</option>
+          </select>
+        </div>
+      </div>
+
+      <button class="calc-submit" id="calcSubmitBtn" onclick="runEstimate()">Estimate APY</button>
+
+      <div id="calcLoading" class="loading" style="display:none">
+        <div class="spinner"></div>
+        <div>Calculating...</div>
+      </div>
+
+      <div id="calcError" class="error-toast" style="display:none"></div>
+
+      <div id="calcResults" style="display:none">
+        <div class="result-grid">
+          <div class="result-card main">
+            <div class="result-label">Estimated APY</div>
+            <div class="result-value" id="resAPY">-</div>
+          </div>
+          <div class="result-card">
+            <div class="result-label">Time in Range</div>
+            <div class="result-value" id="resTimeInRange">-</div>
+          </div>
+          <div class="result-card">
+            <div class="result-label">Daily Fees</div>
+            <div class="result-value" id="resDailyFees">-</div>
+          </div>
+          <div class="result-card">
+            <div class="result-label">Weekly Fees</div>
+            <div class="result-value" id="resWeeklyFees">-</div>
+          </div>
+          <div class="result-card">
+            <div class="result-label">Fee Share</div>
+            <div class="result-value" id="resFeeShare">-</div>
+          </div>
+          <div class="result-card">
+            <div class="result-label">Position Value</div>
+            <div class="result-value" id="resPositionValue">-</div>
+          </div>
+        </div>
+
+        <div class="result-details">
+          <div class="detail-row">
+            <span>Token Composition</span>
+            <span id="resComposition">-</span>
+          </div>
+          <div class="detail-row">
+            <span>Currently In Range</span>
+            <span id="resInRange">-</span>
+          </div>
+          <div class="detail-row">
+            <span>Impermanent Loss (est.)</span>
+            <span id="resIL">-</span>
+          </div>
+          <div class="detail-row">
+            <span>Hours Analyzed</span>
+            <span id="resHours">-</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -508,6 +721,8 @@ function renderTable(pools) {
       <td class="right ${apyCls(m['7d'].apy)}">${m['7d'].apy.toFixed(2)}%</td>
       <td class="right ${apyCls(m['30d'].apy)}">${m['30d'].apy.toFixed(2)}%</td>
       <td class="right">
+        ${p.data_source && p.data_source.startsWith('TheGraph') ?
+          `<button class="calc-btn" onclick="openCalc(poolsData.find(x=>x.address==='${p.address}'))">Calc</button>` : ''}
         <a class="pool-link" href="https://app.uniswap.org/explore/pools/base/${p.address}" target="_blank">View</a>
       </td>
     </tr>`;
@@ -603,6 +818,179 @@ async function fetchData() {
 
 fetchData();
 setInterval(fetchData, REFRESH_INTERVAL);
+
+// ============================================================
+// Position Calculator
+// ============================================================
+
+let calcState = {};
+
+function openCalc(pool) {
+  if (!pool) return;
+  calcState = { ...pool };
+
+  // Determine display price direction
+  const stables = ['USDC', 'USDT', 'DAI'];
+  const t0Stable = stables.includes(pool.token0);
+  const t1Stable = stables.includes(pool.token1);
+
+  let displayToken, quoteToken, inverted;
+  const t0Price = pool.token0Price || 0;
+  const t1Price = pool.token1Price || 0;
+
+  if (t0Stable && !t1Stable) {
+    // token0 is stable (e.g., USDC), token1 is asset (e.g., cbBTC)
+    // Show: "1 cbBTC = X USDC" → price = token1Price (= USDC per cbBTC)
+    displayToken = pool.token1;
+    quoteToken = pool.token0;
+    inverted = true;
+    calcState.displayPrice = t1Price;
+  } else if (!t0Stable && t1Stable) {
+    // token0 is asset, token1 is stable
+    // Show: "1 token0 = X token1" → price = token0Price
+    displayToken = pool.token0;
+    quoteToken = pool.token1;
+    inverted = false;
+    calcState.displayPrice = t0Price;
+  } else {
+    // Both non-stable or both stable: show token0 price in token1
+    displayToken = pool.token0;
+    quoteToken = pool.token1;
+    inverted = false;
+    calcState.displayPrice = t0Price;
+  }
+
+  calcState.displayToken = displayToken;
+  calcState.quoteToken = quoteToken;
+  calcState.inverted = inverted;
+
+  document.getElementById('calcTitle').textContent = `${pool.token0} / ${pool.token1} Calculator`;
+
+  const dp = calcState.displayPrice;
+  const priceStr = dp > 1000 ? dp.toFixed(2) : dp > 1 ? dp.toFixed(4) : dp.toFixed(8);
+  document.getElementById('calcCurrentPrice').textContent = priceStr;
+  document.getElementById('calcPriceLabel').textContent = ` ${quoteToken} per ${displayToken}`;
+  document.getElementById('calcPoolInfo').textContent =
+    `${pool.fee_tier} fee \u00B7 ${pool.version || 'V3'} \u00B7 TVL ${fmt(pool.tvl_usd)}`;
+
+  // Default range: ±20% of current display price
+  const decimals = dp > 100 ? 0 : dp > 1 ? 2 : 6;
+  document.getElementById('calcMinPrice').value = (dp * 0.8).toFixed(decimals);
+  document.getElementById('calcMaxPrice').value = (dp * 1.2).toFixed(decimals);
+
+  // Reset results
+  document.getElementById('calcResults').style.display = 'none';
+  document.getElementById('calcError').style.display = 'none';
+  document.getElementById('calcLoading').style.display = 'none';
+
+  document.getElementById('calcModal').style.display = 'flex';
+}
+
+function closeCalc() {
+  document.getElementById('calcModal').style.display = 'none';
+}
+
+async function runEstimate() {
+  const priceLow = parseFloat(document.getElementById('calcMinPrice').value);
+  const priceHigh = parseFloat(document.getElementById('calcMaxPrice').value);
+  const capital = parseFloat(document.getElementById('calcCapital').value);
+  const hours = parseInt(document.getElementById('calcHours').value);
+
+  if (!priceLow || !priceHigh || !capital || priceLow <= 0 || priceHigh <= 0 || capital <= 0) {
+    showCalcError('Please fill in all fields with positive values');
+    return;
+  }
+  if (priceLow >= priceHigh) {
+    showCalcError('Min Price must be less than Max Price');
+    return;
+  }
+
+  document.getElementById('calcResults').style.display = 'none';
+  document.getElementById('calcError').style.display = 'none';
+  document.getElementById('calcLoading').style.display = 'block';
+  document.getElementById('calcSubmitBtn').disabled = true;
+
+  try {
+    const resp = await fetch('/api/estimate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        pool_address: calcState.address,
+        price_low: priceLow,
+        price_high: priceHigh,
+        capital_usd: capital,
+        hours: hours,
+        inverted: calcState.inverted,
+      })
+    });
+
+    const data = await resp.json();
+    if (!data.success) throw new Error(data.error);
+
+    const est = data.estimate;
+    const pos = data.position;
+
+    // APY
+    const apyEl = document.getElementById('resAPY');
+    apyEl.textContent = est.apy.toFixed(2) + '%';
+    apyEl.style.color = est.apy >= 100 ? 'var(--red)' : est.apy >= 20 ? 'var(--yellow)' : 'var(--green)';
+
+    // Time in range
+    const tirEl = document.getElementById('resTimeInRange');
+    if (est.time_in_range !== null && est.time_in_range !== undefined) {
+      tirEl.textContent = est.time_in_range + '%';
+      tirEl.style.color = est.time_in_range >= 80 ? 'var(--green)' : est.time_in_range >= 50 ? 'var(--yellow)' : 'var(--red)';
+    } else {
+      tirEl.textContent = 'N/A';
+      tirEl.style.color = 'var(--text-muted)';
+    }
+
+    // Fees
+    document.getElementById('resDailyFees').textContent = '$' + est.daily_fees.toFixed(2);
+    document.getElementById('resWeeklyFees').textContent = '$' + est.weekly_fees.toFixed(2);
+
+    // Fee share
+    document.getElementById('resFeeShare').textContent = pos.fee_share_pct.toFixed(4) + '%';
+
+    // Position value
+    document.getElementById('resPositionValue').textContent = fmt(pos.position_value_usd);
+
+    // Details
+    const t0Amt = pos.amount_token0 > 1000 ? pos.amount_token0.toFixed(2) : pos.amount_token0.toFixed(6);
+    const t1Amt = pos.amount_token1 > 1000 ? pos.amount_token1.toFixed(2) : pos.amount_token1.toFixed(6);
+    document.getElementById('resComposition').textContent =
+      `${t0Amt} ${data.pool.token0} + ${t1Amt} ${data.pool.token1}`;
+
+    const inRangeEl = document.getElementById('resInRange');
+    inRangeEl.textContent = pos.in_range ? 'Yes' : 'No';
+    inRangeEl.style.color = pos.in_range ? 'var(--green)' : 'var(--red)';
+
+    const ilEl = document.getElementById('resIL');
+    if (data.impermanent_loss !== null && data.impermanent_loss !== undefined) {
+      ilEl.textContent = data.impermanent_loss.toFixed(2) + '%';
+      ilEl.style.color = data.impermanent_loss < -1 ? 'var(--red)' : 'var(--text-dim)';
+    } else {
+      ilEl.textContent = 'N/A';
+      ilEl.style.color = 'var(--text-muted)';
+    }
+
+    document.getElementById('resHours').textContent =
+      est.hours_analyzed + 'h (' + (est.hours_analyzed / 24).toFixed(0) + 'd)';
+
+    document.getElementById('calcResults').style.display = 'block';
+  } catch (err) {
+    showCalcError(err.message);
+  } finally {
+    document.getElementById('calcLoading').style.display = 'none';
+    document.getElementById('calcSubmitBtn').disabled = false;
+  }
+}
+
+function showCalcError(msg) {
+  const el = document.getElementById('calcError');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
 </script>
 </body>
 </html>
