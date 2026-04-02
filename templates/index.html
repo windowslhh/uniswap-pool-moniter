@@ -834,30 +834,33 @@ function openCalc(pool) {
   const t0Stable = stables.includes(pool.token0);
   const t1Stable = stables.includes(pool.token1);
 
+  // token0Price = token1 per token0 (decimal-adjusted, computed from sqrtPriceX96)
+  // token1Price = token0 per token1 (decimal-adjusted, inverse)
+  const t0InT1 = pool.token0Price || 0;  // e.g., 0.0000119 cbBTC per USDC
+  const t1InT0 = pool.token1Price || 0;  // e.g., 84000 USDC per cbBTC
+
   let displayToken, quoteToken, inverted;
-  const t0Price = pool.token0Price || 0;
-  const t1Price = pool.token1Price || 0;
 
   if (t0Stable && !t1Stable) {
     // token0 is stable (e.g., USDC), token1 is asset (e.g., cbBTC)
-    // Show: "1 cbBTC = X USDC" → price = token1Price (= USDC per cbBTC)
+    // Show: "84,000 USDC per cbBTC"
     displayToken = pool.token1;
     quoteToken = pool.token0;
     inverted = true;
-    calcState.displayPrice = t1Price;
+    calcState.displayPrice = t1InT0;
   } else if (!t0Stable && t1Stable) {
-    // token0 is asset, token1 is stable
-    // Show: "1 token0 = X token1" → price = token0Price
+    // token0 is asset (e.g., WETH), token1 is stable (e.g., USDC)
+    // Show: "2,500 USDC per WETH"
     displayToken = pool.token0;
     quoteToken = pool.token1;
     inverted = false;
-    calcState.displayPrice = t0Price;
+    calcState.displayPrice = t0InT1;
   } else {
     // Both non-stable or both stable: show token0 price in token1
     displayToken = pool.token0;
     quoteToken = pool.token1;
     inverted = false;
-    calcState.displayPrice = t0Price;
+    calcState.displayPrice = t0InT1;
   }
 
   calcState.displayToken = displayToken;
