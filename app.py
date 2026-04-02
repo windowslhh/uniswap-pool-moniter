@@ -428,6 +428,44 @@ def api_pools():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@app.route("/api/debug-tvl")
+def api_debug_tvl():
+    """Debug endpoint to check on-chain TVL status."""
+    try:
+        from config import BASE_RPC_URL
+        test_pool = "0x3e7586d52a9d07f8611b8ecf6ccc8a689c34a659"
+        test_token = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"  # USDC
+        padded = test_pool.replace("0x", "").zfill(64)
+        rpc_payload = {
+            "jsonrpc": "2.0", "id": 1, "method": "eth_call",
+            "params": [{"to": test_token, "data": "0x70a08231" + padded}, "latest"]
+        }
+        resp = _session.post(BASE_RPC_URL, json=rpc_payload, timeout=15)
+        rpc_ok = resp.status_code == 200
+        rpc_data = resp.json() if rpc_ok else {}
+        usdc_hex = rpc_data.get("result", "0x0")
+        usdc_balance = int(usdc_hex, 16) / 1e6 if usdc_hex and usdc_hex != "0x" else 0
+
+        cached = _cache.get("data")
+        pool_tvl = None
+        if cached:
+            for p in cached.get("pools", []):
+                if p["address"] == test_pool:
+                    pool_tvl = p["tvl_usd"]
+                    break
+
+        return jsonify({
+            "rpc_url": BASE_RPC_URL,
+            "rpc_reachable": rpc_ok,
+            "rpc_error": rpc_data.get("error"),
+            "test_pool": test_pool,
+            "usdc_balance_onchain": usdc_balance,
+            "cached_tvl": pool_tvl,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+
 @app.route("/api/estimate", methods=["POST"])
 def api_estimate():
     """Estimate position-level APY for a concentrated liquidity position."""

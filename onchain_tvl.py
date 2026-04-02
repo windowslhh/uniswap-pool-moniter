@@ -21,12 +21,16 @@ def _encode_balance_call(token_address, pool_address):
 
 
 def _batch_rpc_call(calls, session=None):
-    """Send a batch JSON-RPC eth_call request to Base RPC.
+    """Send JSON-RPC eth_call requests to Base RPC.
 
+    Tries batch first; falls back to individual calls if batch fails.
     calls: list of (token_address, pool_address, decimals, symbol) tuples
     Returns: dict mapping (pool_address, symbol) → human_balance
     """
     s = session or requests.Session()
+    balances = {}
+
+    # Build batch request
     batch = []
     for i, (token_addr, pool_addr, _dec, _sym) in enumerate(calls):
         batch.append({
@@ -39,27 +43,44 @@ def _batch_rpc_call(calls, session=None):
             ],
         })
 
+    # Try batch first
+    results = None
     try:
         resp = s.post(BASE_RPC_URL, json=batch, timeout=30)
         resp.raise_for_status()
-        results = resp.json()
+        data = resp.json()
+        if isinstance(data, list):
+            results = data
     except Exception as e:
-        logger.error("RPC batch call failed: %s", e)
-        return {}
+        logger.warning("Batch RPC failed, trying individual calls: %s", e)
 
-    balances = {}
+    # Fallback: individual calls
+    if results is None:
+        results = []
+        for i, item in enumerate(batch):
+            try:
+                resp = s.post(BASE_RPC_URL, json=item, timeout=15)
+                resp.raise_for_status()
+                r = resp.json()
+                r["id"] = i
+                results.append(r)
+            except Exception as e:
+                logger.warning("Individual RPC call %d failed: %s", i, e)
+                results.append({"id": i, "result": "0x0"})
+
     # Sort results by id to match calls
-    if isinstance(results, list):
-        results.sort(key=lambda r: r.get("id", 0))
+    results.sort(key=lambda r: r.get("id", 0))
 
     for i, (token_addr, pool_addr, decimals, symbol) in enumerate(calls):
         try:
-            if isinstance(results, list) and i < len(results):
+            if i < len(results):
                 r = results[i]
             else:
                 continue
             hex_val = r.get("result", "0x0")
-            raw_balance = int(hex_val, 16) if hex_val else 0
+            if not hex_val or hex_val == "0x":
+                hex_val = "0x0"
+            raw_balance = int(hex_val, 16)
             human_balance = raw_balance / (10 ** decimals)
             balances[(pool_addr.lower(), symbol)] = human_balance
         except (ValueError, TypeError) as e:
