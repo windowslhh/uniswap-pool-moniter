@@ -25,8 +25,14 @@ def tick_to_sqrt_price(tick):
 
 
 def sqrt_price_x96_to_price(sqrt_price_x96):
-    """Convert sqrtPriceX96 (Q64.96 format) to human-readable price."""
+    """Convert sqrtPriceX96 (Q64.96 format) to raw price (token1_raw/token0_raw).
+    This is NOT decimal-adjusted."""
     return (int(sqrt_price_x96) / (2 ** 96)) ** 2
+
+
+def raw_price_to_decimal(raw_price, token0_decimals, token1_decimals):
+    """Convert raw price to decimal-adjusted price (token1_human / token0_human)."""
+    return raw_price * (10 ** (token0_decimals - token1_decimals))
 
 
 def sqrt_price_x96_to_sqrt(sqrt_price_x96):

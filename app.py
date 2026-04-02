@@ -197,6 +197,18 @@ def _parse_pool_result(pool_data, hour_data, day_data, pool_config, version):
     if version == "V4":
         address = address[:42]
 
+    # Compute decimal-adjusted prices from sqrtPriceX96 (consistent for V3 & V4)
+    t0_dec = int(pool_data.get("token0", {}).get("decimals", 18))
+    t1_dec = int(pool_data.get("token1", {}).get("decimals", 18))
+    sqrt_price = pool_data.get("sqrtPrice", "0")
+    if sqrt_price and sqrt_price != "0":
+        raw_price = lp_math.sqrt_price_x96_to_price(sqrt_price)
+        t0_price_in_t1 = lp_math.raw_price_to_decimal(raw_price, t0_dec, t1_dec)
+        t1_price_in_t0 = 1.0 / t0_price_in_t1 if t0_price_in_t1 > 0 else 0
+    else:
+        t0_price_in_t1 = float(pool_data.get("token0Price", 0))
+        t1_price_in_t0 = float(pool_data.get("token1Price", 0))
+
     return {
         "name": pool_config["name"],
         "address": address,
@@ -210,10 +222,10 @@ def _parse_pool_result(pool_data, hour_data, day_data, pool_config, version):
         "tick": pool_data.get("tick"),
         "sqrtPrice": pool_data.get("sqrtPrice"),
         "liquidity": pool_data.get("liquidity"),
-        "token0Price": float(pool_data.get("token0Price", 0)),
-        "token1Price": float(pool_data.get("token1Price", 0)),
-        "token0_decimals": int(pool_data.get("token0", {}).get("decimals", 18)),
-        "token1_decimals": int(pool_data.get("token1", {}).get("decimals", 18)),
+        "token0_decimals": t0_dec,
+        "token1_decimals": t1_dec,
+        "token0Price": t0_price_in_t1,
+        "token1Price": t1_price_in_t0,
         "metrics": {
             "1d": {
                 "volume": volume_1d,
@@ -452,32 +464,47 @@ def api_estimate():
         tvl = float(pool_data.get("totalValueLockedUSD", 0))
         t0_sym = pool_data.get("token0", {}).get("symbol", "")
         t1_sym = pool_data.get("token1", {}).get("symbol", "")
-        token0_price_in_t1 = float(pool_data.get("token0Price", 0))
-        token1_price_in_t0 = float(pool_data.get("token1Price", 0))
-        current_price = lp_math.sqrt_price_x96_to_price(sqrt_price_x96)
+        t0_dec = int(pool_data.get("token0", {}).get("decimals", 18))
+        t1_dec = int(pool_data.get("token1", {}).get("decimals", 18))
 
-        # Convert user's display prices to internal (token1/token0) prices
+        # Raw price from sqrtPriceX96 (NOT decimal-adjusted)
+        current_price_raw = lp_math.sqrt_price_x96_to_price(sqrt_price_x96)
+        # Decimal-adjusted prices (human-readable)
+        current_t0_in_t1 = lp_math.raw_price_to_decimal(
+            current_price_raw, t0_dec, t1_dec
+        )
+        current_t1_in_t0 = 1.0 / current_t0_in_t1 if current_t0_in_t1 > 0 else 0
+
+        # User prices are decimal-adjusted. Convert to internal (token1/token0)
+        # then to raw for tick computation.
         if inverted:
-            internal_price_low = 1.0 / price_high if price_high > 0 else 0
-            internal_price_high = 1.0 / price_low if price_low > 0 else 0
+            # User entered token0-per-token1 (e.g., USDC per cbBTC)
+            # Internal = token1/token0 = 1/user_price (decimal-adjusted)
+            internal_dec_low = 1.0 / price_high if price_high > 0 else 0
+            internal_dec_high = 1.0 / price_low if price_low > 0 else 0
         else:
-            internal_price_low = price_low
-            internal_price_high = price_high
+            internal_dec_low = price_low
+            internal_dec_high = price_high
 
-        tick_lower = lp_math.price_to_tick(internal_price_low)
-        tick_upper = lp_math.price_to_tick(internal_price_high)
+        # Convert decimal-adjusted to raw for tick computation
+        decimal_to_raw = 10 ** (t1_dec - t0_dec)
+        internal_raw_low = internal_dec_low * decimal_to_raw
+        internal_raw_high = internal_dec_high * decimal_to_raw
+
+        tick_lower = lp_math.price_to_tick(internal_raw_low)
+        tick_upper = lp_math.price_to_tick(internal_raw_high)
         if tick_lower > tick_upper:
             tick_lower, tick_upper = tick_upper, tick_lower
 
-        # Determine token USD prices
+        # Determine token USD prices (using decimal-adjusted prices)
         token0_usd, token1_usd = _resolve_token_usd_prices(
-            t0_sym, t1_sym, token0_price_in_t1, token1_price_in_t0,
-            current_price, tvl
+            t0_sym, t1_sym, current_t0_in_t1, current_t1_in_t0,
+            current_t0_in_t1, tvl
         )
 
-        # Calculate user's liquidity from capital
+        # Calculate user's liquidity from capital (using RAW prices for sqrt math)
         user_L, amount0, amount1 = lp_math.capital_to_liquidity(
-            capital_usd, current_price, internal_price_low, internal_price_high,
+            capital_usd, current_price_raw, internal_raw_low, internal_raw_high,
             token0_usd, token1_usd
         )
         position_value = amount0 * token0_usd + amount1 * token1_usd
@@ -518,14 +545,14 @@ def api_estimate():
         if has_tick_data and len(hourly_data) > 1:
             oldest_tick = hourly_data[-1].get("tick")
             if oldest_tick is not None:
-                oldest_price = lp_math.tick_to_price(int(oldest_tick))
+                oldest_price_raw = lp_math.tick_to_price(int(oldest_tick))
                 il = lp_math.calculate_impermanent_loss(
-                    oldest_price, current_price,
-                    internal_price_low, internal_price_high
+                    oldest_price_raw, current_price_raw,
+                    internal_raw_low, internal_raw_high
                 )
 
-        # Display price
-        display_price = (1.0 / current_price if current_price > 0 else 0) if inverted else current_price
+        # Display price (decimal-adjusted, user-friendly direction)
+        display_price = current_t1_in_t0 if inverted else current_t0_in_t1
 
         display_addr = pool_config["address"][:42] if version == "V4" else pool_config["address"]
 
