@@ -496,17 +496,25 @@ def api_estimate():
         if tick_lower > tick_upper:
             tick_lower, tick_upper = tick_upper, tick_lower
 
-        # Determine token USD prices (using decimal-adjusted prices)
+        # Determine token USD prices (per human token, decimal-adjusted)
         token0_usd, token1_usd = _resolve_token_usd_prices(
             t0_sym, t1_sym, current_t0_in_t1, current_t1_in_t0,
             current_t0_in_t1, tvl
         )
 
-        # Calculate user's liquidity from capital (using RAW prices for sqrt math)
-        user_L, amount0, amount1 = lp_math.capital_to_liquidity(
+        # USD price per RAW unit (to match subgraph liquidity units)
+        token0_usd_raw = token0_usd / (10 ** t0_dec)
+        token1_usd_raw = token1_usd / (10 ** t1_dec)
+
+        # Calculate user's liquidity in subgraph-compatible raw units
+        user_L, amount0_raw, amount1_raw = lp_math.capital_to_liquidity(
             capital_usd, current_price_raw, internal_raw_low, internal_raw_high,
-            token0_usd, token1_usd
+            token0_usd_raw, token1_usd_raw
         )
+
+        # Convert raw amounts to human-readable for display
+        amount0 = amount0_raw / (10 ** t0_dec)
+        amount1 = amount1_raw / (10 ** t1_dec)
         position_value = amount0 * token0_usd + amount1 * token1_usd
 
         # Fee share at current state
