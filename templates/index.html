@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <title>Uniswap V3 Pool Monitor - Base</title>
 <style>
   :root {
@@ -451,6 +452,58 @@
   .detail-row span:last-child {
     font-family: 'SF Mono', 'Consolas', monospace; color: var(--text);
   }
+
+  /* Chart Section */
+  .chart-section {
+    margin-top: 20px;
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+  }
+  .chart-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+  .chart-header h4 {
+    font-size: 14px; font-weight: 600; margin: 0;
+  }
+  .period-tabs {
+    display: flex; gap: 4px;
+  }
+  .period-tab {
+    padding: 4px 12px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--card); color: var(--text-muted);
+    cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.15s;
+  }
+  .period-tab.active {
+    background: var(--accent); color: white; border-color: var(--accent);
+  }
+  .period-tab:hover:not(.active) {
+    border-color: var(--accent); color: var(--text);
+  }
+  .chart-stat {
+    text-align: center; margin: 8px 0 4px;
+  }
+  .chart-stat .big-num {
+    font-size: 22px; font-weight: 700; color: var(--green);
+    font-family: 'SF Mono', 'Consolas', monospace;
+  }
+  .chart-stat .sub-label {
+    font-size: 11px; color: var(--text-muted); margin-top: 2px;
+  }
+  .chart-wrap {
+    position: relative;
+    height: 160px;
+    margin-bottom: 8px;
+  }
+  .chart-wrap.bar-chart {
+    height: 80px;
+  }
+  .chart-loading {
+    display: flex; align-items: center; justify-content: center;
+    height: 160px; color: var(--text-muted); font-size: 13px;
+  }
 </style>
 </head>
 <body>
@@ -603,6 +656,38 @@
           </div>
         </div>
       </div>
+
+      <!-- Chart Section -->
+      <div class="chart-section" id="chartSection" style="display:none">
+        <div class="chart-header">
+          <h4>Yield History</h4>
+          <div class="period-tabs">
+            <button class="period-tab" data-period="1d" onclick="switchPeriod('1d')">1D</button>
+            <button class="period-tab active" data-period="7d" onclick="switchPeriod('7d')">1W</button>
+            <button class="period-tab" data-period="30d" onclick="switchPeriod('30d')">1M</button>
+          </div>
+        </div>
+
+        <div class="chart-stat">
+          <div class="big-num" id="chartApyNow">-</div>
+          <div class="sub-label">Current APY</div>
+        </div>
+        <div class="chart-stat">
+          <div class="sub-label">Fee Revenue: <span id="chartTotalFees" style="color:var(--text);font-weight:600">-</span></div>
+        </div>
+
+        <div id="chartLoading" class="chart-loading" style="display:none">
+          <div class="spinner" style="width:20px;height:20px;margin-right:8px"></div> Loading chart...
+        </div>
+
+        <div class="chart-wrap" id="apyChartWrap">
+          <canvas id="apyChart"></canvas>
+        </div>
+        <div class="chart-wrap bar-chart" id="feeChartWrap">
+          <canvas id="feeChart"></canvas>
+        </div>
+      </div>
+
     </div>
   </div>
 </div>
@@ -881,10 +966,12 @@ function openCalc(pool) {
   document.getElementById('calcMinPrice').value = (dp * 0.8).toFixed(decimals);
   document.getElementById('calcMaxPrice').value = (dp * 1.2).toFixed(decimals);
 
-  // Reset results
+  // Reset results and chart
   document.getElementById('calcResults').style.display = 'none';
   document.getElementById('calcError').style.display = 'none';
   document.getElementById('calcLoading').style.display = 'none';
+  document.getElementById('chartSection').style.display = 'none';
+  destroyCharts();
 
   document.getElementById('calcModal').style.display = 'flex';
 }
@@ -981,6 +1068,9 @@ async function runEstimate() {
       est.hours_analyzed + 'h (' + (est.hours_analyzed / 24).toFixed(0) + 'd)';
 
     document.getElementById('calcResults').style.display = 'block';
+
+    // Load yield history chart
+    loadChart('7d');
   } catch (err) {
     showCalcError(err.message);
   } finally {
@@ -993,6 +1083,175 @@ function showCalcError(msg) {
   const el = document.getElementById('calcError');
   el.textContent = msg;
   el.style.display = 'block';
+}
+
+// ============================================================
+// Yield History Charts
+// ============================================================
+
+let apyChartInstance = null;
+let feeChartInstance = null;
+let currentPeriod = '7d';
+
+function formatTimestamp(ts, period) {
+  const d = new Date(ts * 1000);
+  if (period === '1d') return d.getHours().toString().padStart(2,'0') + ':00';
+  if (period === '7d') {
+    return (d.getMonth()+1) + '/' + d.getDate() + ' ' + d.getHours().toString().padStart(2,'0') + 'h';
+  }
+  return (d.getMonth()+1) + '/' + d.getDate();
+}
+
+function destroyCharts() {
+  if (apyChartInstance) { apyChartInstance.destroy(); apyChartInstance = null; }
+  if (feeChartInstance) { feeChartInstance.destroy(); feeChartInstance = null; }
+}
+
+function buildCharts(data) {
+  destroyCharts();
+  const labels = data.labels.map(ts => formatTimestamp(ts, data.period));
+
+  // APY line chart
+  const apyCtx = document.getElementById('apyChart').getContext('2d');
+  apyChartInstance = new Chart(apyCtx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [{
+        data: data.apy,
+        borderColor: '#22c55e',
+        backgroundColor: 'rgba(34, 197, 94, 0.08)',
+        borderWidth: 2,
+        fill: true,
+        tension: 0.3,
+        pointRadius: 0,
+        pointHitRadius: 10,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => ctx.parsed.y.toFixed(2) + '% APY'
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: '#6b7280', font: { size: 10 }, maxTicksLimit: 6 },
+          grid: { color: 'rgba(75,85,99,0.15)' }
+        },
+        y: {
+          ticks: {
+            color: '#6b7280', font: { size: 10 },
+            callback: v => v.toFixed(0) + '%'
+          },
+          grid: { color: 'rgba(75,85,99,0.15)' }
+        }
+      },
+      interaction: { mode: 'index', intersect: false }
+    }
+  });
+
+  // Fee bar chart
+  const feeCtx = document.getElementById('feeChart').getContext('2d');
+  feeChartInstance = new Chart(feeCtx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [{
+        data: data.fees,
+        backgroundColor: 'rgba(34, 197, 94, 0.6)',
+        borderRadius: 2,
+        barPercentage: 0.7,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => '$' + ctx.parsed.y.toFixed(2) + ' fees'
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: '#6b7280', font: { size: 10 }, maxTicksLimit: 6 },
+          grid: { display: false }
+        },
+        y: {
+          ticks: {
+            color: '#6b7280', font: { size: 10 },
+            callback: v => '$' + v.toFixed(0)
+          },
+          grid: { color: 'rgba(75,85,99,0.15)' }
+        }
+      }
+    }
+  });
+
+  // Update summary stats
+  const latestApy = data.apy.length ? data.apy[data.apy.length - 1] : 0;
+  const totalFees = data.fees.reduce((s, f) => s + f, 0);
+  const apyEl = document.getElementById('chartApyNow');
+  apyEl.textContent = latestApy.toFixed(2) + '%';
+  apyEl.style.color = latestApy >= 100 ? 'var(--red)' : latestApy >= 20 ? 'var(--yellow)' : 'var(--green)';
+  document.getElementById('chartTotalFees').textContent = '$' + totalFees.toFixed(2);
+}
+
+async function loadChart(period) {
+  currentPeriod = period || currentPeriod;
+
+  // Update active tab
+  document.querySelectorAll('.period-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.period === currentPeriod);
+  });
+
+  const section = document.getElementById('chartSection');
+  const loading = document.getElementById('chartLoading');
+  const apyWrap = document.getElementById('apyChartWrap');
+  const feeWrap = document.getElementById('feeChartWrap');
+
+  section.style.display = 'block';
+  loading.style.display = 'flex';
+  apyWrap.style.display = 'none';
+  feeWrap.style.display = 'none';
+
+  try {
+    const resp = await fetch('/api/pool-chart', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        pool_address: calcState.address,
+        period: currentPeriod,
+        price_low: parseFloat(document.getElementById('calcMinPrice').value) || 0,
+        price_high: parseFloat(document.getElementById('calcMaxPrice').value) || 0,
+        capital_usd: parseFloat(document.getElementById('calcCapital').value) || 10000,
+        inverted: calcState.inverted,
+      })
+    });
+    const data = await resp.json();
+    if (!data.success) throw new Error(data.error);
+
+    loading.style.display = 'none';
+    apyWrap.style.display = 'block';
+    feeWrap.style.display = 'block';
+    buildCharts(data);
+  } catch (err) {
+    loading.style.display = 'none';
+    apyWrap.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:20px">Chart unavailable: ' + err.message + '</div>';
+    apyWrap.style.display = 'block';
+  }
+}
+
+function switchPeriod(p) {
+  loadChart(p);
 }
 </script>
 </body>

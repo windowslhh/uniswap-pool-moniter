@@ -599,6 +599,174 @@ def api_estimate():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@app.route("/api/pool-chart", methods=["POST"])
+def api_pool_chart():
+    """Return historical APY and fee time-series data for charting."""
+    if DATA_SOURCE != "thegraph" or not THEGRAPH_API_KEY:
+        return jsonify({"success": False, "error": "Requires TheGraph"}), 400
+
+    try:
+        body = request.get_json() or {}
+        pool_address = body.get("pool_address", "").strip().lower()
+        period = body.get("period", "7d")  # 1d, 7d, 30d
+        price_low = float(body.get("price_low", 0))
+        price_high = float(body.get("price_high", 0))
+        capital_usd = float(body.get("capital_usd", 10000))
+        inverted = body.get("inverted", False)
+
+        if not pool_address:
+            return jsonify({"success": False, "error": "pool_address required"}), 400
+
+        # Map period to hours and bucket size
+        period_map = {
+            "1d": (24, 1),       # 24 hourly points
+            "7d": (168, 6),      # 28 points (6h buckets)
+            "30d": (720, 24),    # 30 points (daily buckets)
+        }
+        total_hours, bucket_size = period_map.get(period, (168, 6))
+
+        # Find pool config
+        pool_config, subgraph_url, version = None, None, None
+        for pc in POOLS:
+            if pc["address"] == pool_address:
+                pool_config, subgraph_url, version = pc, SUBGRAPH_URL, "V3"
+                break
+        if not pool_config:
+            for pc in POOLS_V4:
+                if pc["address"] == pool_address or pc["address"][:42] == pool_address:
+                    pool_config, subgraph_url, version = pc, SUBGRAPH_URL_V4, "V4"
+                    pool_address = pc["address"]
+                    break
+        if not pool_config:
+            return jsonify({"success": False, "error": "Pool not found"}), 404
+
+        # Fetch historical hourly data
+        query = (
+            '{ pool(id: "%s") '
+            '{ tick sqrtPrice liquidity totalValueLockedUSD '
+            'token0 { symbol decimals } token1 { symbol decimals } } '
+            'poolHourDatas(first: %d, orderBy: periodStartUnix, '
+            'orderDirection: desc, where: {pool: "%s"}) '
+            '{ periodStartUnix tick liquidity feesUSD tvlUSD } }'
+        ) % (pool_address, min(total_hours, 1000), pool_address)
+
+        resp = _session.post(subgraph_url, json={"query": query}, timeout=90)
+        resp.raise_for_status()
+        result = resp.json()
+        if "errors" in result:
+            return jsonify({"success": False, "error": str(result["errors"])}), 500
+
+        pool_data = result["data"].get("pool")
+        hourly = result["data"].get("poolHourDatas", [])
+        if not pool_data or not hourly:
+            return jsonify({"success": False, "error": "No data"}), 404
+
+        t0_dec = int(pool_data.get("token0", {}).get("decimals", 18))
+        t1_dec = int(pool_data.get("token1", {}).get("decimals", 18))
+
+        # Compute user tick range if price range given
+        has_position = price_low > 0 and price_high > 0 and price_low < price_high
+        tick_lower, tick_upper, user_L = 0, 0, 0
+
+        if has_position:
+            if inverted:
+                idl = 1.0 / price_high if price_high > 0 else 0
+                idh = 1.0 / price_low if price_low > 0 else 0
+            else:
+                idl, idh = price_low, price_high
+
+            decimal_to_raw = 10 ** (t1_dec - t0_dec)
+            raw_low = idl * decimal_to_raw
+            raw_high = idh * decimal_to_raw
+
+            tick_lower = lp_math.price_to_tick(raw_low)
+            tick_upper = lp_math.price_to_tick(raw_high)
+            if tick_lower > tick_upper:
+                tick_lower, tick_upper = tick_upper, tick_lower
+
+            # Compute user L from capital (for fee share)
+            raw_price = lp_math.sqrt_price_x96_to_price(
+                pool_data.get("sqrtPrice", "0")
+            )
+            t0_in_t1 = lp_math.raw_price_to_decimal(raw_price, t0_dec, t1_dec)
+            t1_in_t0 = 1.0 / t0_in_t1 if t0_in_t1 > 0 else 0
+            t0_usd, t1_usd = _resolve_token_usd_prices(
+                pool_data["token0"]["symbol"], pool_data["token1"]["symbol"],
+                t0_in_t1, t1_in_t0, t0_in_t1,
+                float(pool_data.get("totalValueLockedUSD", 0))
+            )
+            t0_usd_raw = t0_usd / (10 ** t0_dec)
+            t1_usd_raw = t1_usd / (10 ** t1_dec)
+            user_L, _, _ = lp_math.capital_to_liquidity(
+                capital_usd, raw_price, raw_low, raw_high,
+                t0_usd_raw, t1_usd_raw
+            )
+
+        # Reverse to chronological order
+        hourly.reverse()
+
+        # Bucket the data
+        labels = []
+        apy_values = []
+        fee_values = []
+
+        for i in range(0, len(hourly), bucket_size):
+            bucket = hourly[i:i + bucket_size]
+            if not bucket:
+                continue
+
+            ts = int(bucket[0].get("periodStartUnix", 0))
+            bucket_fees_total = sum(float(h.get("feesUSD", 0)) for h in bucket)
+            bucket_tvl = float(bucket[-1].get("tvlUSD", 0)) or float(
+                bucket[0].get("tvlUSD", 0)
+            )
+
+            # Pool-level APY for this bucket
+            hours_in_bucket = len(bucket)
+            if bucket_tvl > 0 and hours_in_bucket > 0:
+                daily_rate = (bucket_fees_total / hours_in_bucket * 24) / bucket_tvl
+                pool_apy = daily_rate * 365 * 100
+            else:
+                pool_apy = 0
+
+            # Position-level fee for this bucket
+            pos_fee = 0
+            if has_position and user_L > 0:
+                for h in bucket:
+                    h_tick = h.get("tick")
+                    h_liq = h.get("liquidity")
+                    h_fee = float(h.get("feesUSD", 0))
+                    if h_tick is not None and h_liq is not None:
+                        if tick_lower <= int(h_tick) < tick_upper:
+                            liq = int(h_liq)
+                            if liq > 0:
+                                pos_fee += h_fee * user_L / (liq + user_L)
+
+            # Position APY
+            if has_position and capital_usd > 0 and hours_in_bucket > 0:
+                pos_daily = (pos_fee / hours_in_bucket) * 24
+                pos_apy = (pos_daily / capital_usd) * 365 * 100
+            else:
+                pos_apy = pool_apy
+
+            labels.append(ts)
+            apy_values.append(round(pos_apy if has_position else pool_apy, 2))
+            fee_values.append(round(pos_fee if has_position else bucket_fees_total, 4))
+
+        return jsonify({
+            "success": True,
+            "period": period,
+            "labels": labels,
+            "apy": apy_values,
+            "fees": fee_values,
+            "has_position": has_position,
+        })
+
+    except Exception as e:
+        logger.exception("Chart data failed")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 if __name__ == "__main__":
     logger.info("Starting Uniswap Pool Monitor on port %d", FLASK_PORT)
     logger.info("Primary data source: %s", DATA_SOURCE)
