@@ -692,6 +692,49 @@
   </div>
 </div>
 
+<!-- Pool Chart Modal (pool-level, no position) -->
+<div class="modal-overlay" id="poolChartModal" style="display:none" onclick="if(event.target===this)closePoolChart()">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="poolChartTitle">Pool Yield History</h3>
+      <button class="modal-close" onclick="closePoolChart()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="calc-info">
+        <div class="calc-pool-info" id="poolChartInfo"></div>
+      </div>
+
+      <div class="chart-header">
+        <h4>APY &amp; Fees</h4>
+        <div class="period-tabs">
+          <button class="period-tab pool-period" data-period="1d" onclick="switchPoolPeriod('1d')">1D</button>
+          <button class="period-tab pool-period active" data-period="7d" onclick="switchPoolPeriod('7d')">1W</button>
+          <button class="period-tab pool-period" data-period="30d" onclick="switchPoolPeriod('30d')">1M</button>
+        </div>
+      </div>
+
+      <div class="chart-stat">
+        <div class="big-num" id="poolChartApyNow">-</div>
+        <div class="sub-label">Current Pool APY</div>
+      </div>
+      <div class="chart-stat">
+        <div class="sub-label">Total Fees: <span id="poolChartTotalFees" style="color:var(--text);font-weight:600">-</span></div>
+      </div>
+
+      <div id="poolChartLoading" class="chart-loading" style="display:none">
+        <div class="spinner" style="width:20px;height:20px;margin-right:8px"></div> Loading...
+      </div>
+
+      <div class="chart-wrap" id="poolApyChartWrap">
+        <canvas id="poolApyChart"></canvas>
+      </div>
+      <div class="chart-wrap bar-chart" id="poolFeeChartWrap">
+        <canvas id="poolFeeChart"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 const REFRESH_INTERVAL = 5 * 60 * 1000;
 let poolsData = [];
@@ -807,7 +850,7 @@ function renderTable(pools) {
       <td class="right ${apyCls(m['30d'].apy)}">${m['30d'].apy.toFixed(2)}%</td>
       <td class="right">
         ${p.data_source && p.data_source.startsWith('TheGraph') ?
-          `<button class="calc-btn" onclick="openCalc(poolsData.find(x=>x.address==='${p.address}'))">Calc</button>` : ''}
+          `<button class="calc-btn" onclick="openPoolChart(poolsData.find(x=>x.address==='${p.address}'))">📊</button><button class="calc-btn" onclick="openCalc(poolsData.find(x=>x.address==='${p.address}'))">Calc</button>` : ''}
         <a class="pool-link" href="https://app.uniswap.org/explore/pools/base/${p.address}" target="_blank">View</a>
       </td>
     </tr>`;
@@ -1252,6 +1295,151 @@ async function loadChart(period) {
 
 function switchPeriod(p) {
   loadChart(p);
+}
+
+// ============================================================
+// Pool-Level Chart (no position, from main table)
+// ============================================================
+
+let poolApyChartInst = null;
+let poolFeeChartInst = null;
+let poolChartState = {};
+let poolChartPeriod = '7d';
+
+function openPoolChart(pool) {
+  if (!pool) return;
+  poolChartState = { ...pool };
+  poolChartPeriod = '7d';
+
+  document.getElementById('poolChartTitle').textContent = `${pool.token0} / ${pool.token1} Yield History`;
+  document.getElementById('poolChartInfo').textContent =
+    `${pool.fee_tier} fee · ${pool.version || 'V3'} · TVL ${fmt(pool.tvl_usd)}`;
+
+  // Reset
+  document.querySelectorAll('.pool-period').forEach(t =>
+    t.classList.toggle('active', t.dataset.period === '7d')
+  );
+  destroyPoolCharts();
+
+  document.getElementById('poolChartModal').style.display = 'flex';
+  loadPoolChart('7d');
+}
+
+function closePoolChart() {
+  document.getElementById('poolChartModal').style.display = 'none';
+  destroyPoolCharts();
+}
+
+function destroyPoolCharts() {
+  if (poolApyChartInst) { poolApyChartInst.destroy(); poolApyChartInst = null; }
+  if (poolFeeChartInst) { poolFeeChartInst.destroy(); poolFeeChartInst = null; }
+}
+
+function buildPoolCharts(data) {
+  destroyPoolCharts();
+  const labels = data.labels.map(ts => formatTimestamp(ts, data.period));
+
+  // APY line
+  const ctx1 = document.getElementById('poolApyChart').getContext('2d');
+  poolApyChartInst = new Chart(ctx1, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data: data.apy,
+        borderColor: '#22c55e',
+        backgroundColor: 'rgba(34,197,94,0.08)',
+        borderWidth: 2, fill: true, tension: 0.3,
+        pointRadius: 0, pointHitRadius: 10,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: c => c.parsed.y.toFixed(2) + '% APY' } }
+      },
+      scales: {
+        x: { ticks: { color: '#6b7280', font: { size: 10 }, maxTicksLimit: 6 }, grid: { color: 'rgba(75,85,99,0.15)' } },
+        y: { ticks: { color: '#6b7280', font: { size: 10 }, callback: v => v.toFixed(0) + '%' }, grid: { color: 'rgba(75,85,99,0.15)' } }
+      },
+      interaction: { mode: 'index', intersect: false }
+    }
+  });
+
+  // Fee bars
+  const ctx2 = document.getElementById('poolFeeChart').getContext('2d');
+  poolFeeChartInst = new Chart(ctx2, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        data: data.fees,
+        backgroundColor: 'rgba(34,197,94,0.6)',
+        borderRadius: 2, barPercentage: 0.7,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: c => '$' + c.parsed.y.toFixed(2) } }
+      },
+      scales: {
+        x: { ticks: { color: '#6b7280', font: { size: 10 }, maxTicksLimit: 6 }, grid: { display: false } },
+        y: { ticks: { color: '#6b7280', font: { size: 10 }, callback: v => '$' + (v >= 1000 ? (v/1000).toFixed(1)+'K' : v.toFixed(0)) }, grid: { color: 'rgba(75,85,99,0.15)' } }
+      }
+    }
+  });
+
+  // Stats
+  const lastApy = data.apy.length ? data.apy[data.apy.length - 1] : 0;
+  const totalFees = data.fees.reduce((s, f) => s + f, 0);
+  const apyEl = document.getElementById('poolChartApyNow');
+  apyEl.textContent = lastApy.toFixed(2) + '%';
+  apyEl.style.color = lastApy >= 100 ? 'var(--red)' : lastApy >= 20 ? 'var(--yellow)' : 'var(--green)';
+  document.getElementById('poolChartTotalFees').textContent = '$' + (totalFees >= 1000 ? (totalFees/1000).toFixed(1) + 'K' : totalFees.toFixed(2));
+}
+
+async function loadPoolChart(period) {
+  poolChartPeriod = period || poolChartPeriod;
+  document.querySelectorAll('.pool-period').forEach(t =>
+    t.classList.toggle('active', t.dataset.period === poolChartPeriod)
+  );
+
+  const loading = document.getElementById('poolChartLoading');
+  const apyWrap = document.getElementById('poolApyChartWrap');
+  const feeWrap = document.getElementById('poolFeeChartWrap');
+  loading.style.display = 'flex';
+  apyWrap.style.display = 'none';
+  feeWrap.style.display = 'none';
+
+  try {
+    const resp = await fetch('/api/pool-chart', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        pool_address: poolChartState.address,
+        period: poolChartPeriod,
+        // No price range → pool-level data
+      })
+    });
+    const data = await resp.json();
+    if (!data.success) throw new Error(data.error);
+
+    loading.style.display = 'none';
+    apyWrap.style.display = 'block';
+    feeWrap.style.display = 'block';
+    buildPoolCharts(data);
+  } catch (err) {
+    loading.style.display = 'none';
+    apyWrap.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:20px">' + err.message + '</div>';
+    apyWrap.style.display = 'block';
+  }
+}
+
+function switchPoolPeriod(p) {
+  loadPoolChart(p);
 }
 </script>
 </body>
