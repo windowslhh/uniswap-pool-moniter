@@ -196,6 +196,9 @@ POOLS_V4 = [
     },
 ]
 
+# --- Base RPC (for on-chain balanceOf TVL) ---
+BASE_RPC_URL = os.getenv("BASE_RPC_URL", "https://mainnet.base.org")
+
 # Token addresses on Base (lowercase, for TheGraph queries)
 TOKENS = {
     "cbBTC": {"address": "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf", "decimals": 8},

@@ -18,6 +18,7 @@ from config import (
     FLASK_PORT,
 )
 import lp_math
+import onchain_tvl
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -332,6 +333,36 @@ def fetch_all_pools():
                     results.append(future.result())
                 except Exception as e:
                     errors.append({"pool": pc["name"], "error": str(e)})
+
+    # Override TVL with accurate on-chain balanceOf data
+    if results:
+        try:
+            token_prices = onchain_tvl.fetch_token_prices_from_subgraph(results)
+            all_pools_config = POOLS + POOLS_V4
+            tvl_map = onchain_tvl.fetch_onchain_tvl(
+                all_pools_config, token_prices, _session
+            )
+            if tvl_map:
+                for pool in results:
+                    addr = pool["address"].lower()
+                    if addr in tvl_map and tvl_map[addr] > 0:
+                        new_tvl = tvl_map[addr]
+                        pool["tvl_usd"] = new_tvl
+                        # Recalculate APY with corrected TVL
+                        for period in ["1d", "7d", "30d"]:
+                            m = pool.get("metrics", {}).get(period, {})
+                            fees = m.get("fees", 0)
+                            days = {"1d": 1, "7d": 7, "30d": 30}[period]
+                            if new_tvl > 0 and days > 0:
+                                m["apy"] = round(
+                                    (fees / days / new_tvl) * 365 * 100, 2
+                                )
+                logger.info(
+                    "On-chain TVL override applied for %d/%d pools",
+                    len(tvl_map), len(results),
+                )
+        except Exception as e:
+            logger.warning("On-chain TVL fetch failed, using subgraph TVL: %s", e)
 
     data = {"pools": results, "errors": errors, "timestamp": int(now)}
     _cache["data"] = data
