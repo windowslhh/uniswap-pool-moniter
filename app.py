@@ -200,8 +200,8 @@ def _parse_pool_result(pool_data, hour_data, day_data, pool_config, version):
     # Compute decimal-adjusted prices from sqrtPriceX96 (consistent for V3 & V4)
     t0_dec = int(pool_data.get("token0", {}).get("decimals", 18))
     t1_dec = int(pool_data.get("token1", {}).get("decimals", 18))
-    sqrt_price = pool_data.get("sqrtPrice", "0")
-    if sqrt_price and sqrt_price != "0":
+    sqrt_price = pool_data.get("sqrtPrice") or "0"
+    if sqrt_price != "0":
         raw_price = lp_math.sqrt_price_x96_to_price(sqrt_price)
         t0_price_in_t1 = lp_math.raw_price_to_decimal(raw_price, t0_dec, t1_dec)
         t1_price_in_t0 = 1.0 / t0_price_in_t1 if t0_price_in_t1 > 0 else 0
@@ -467,8 +467,8 @@ def api_estimate():
             return jsonify({"success": False, "error": "Pool not found in subgraph"}), 404
 
         # Parse pool state
-        current_tick = int(pool_data.get("tick", 0))
-        sqrt_price_x96 = pool_data.get("sqrtPrice", "0")
+        current_tick = int(pool_data.get("tick") or 0)
+        sqrt_price_x96 = pool_data.get("sqrtPrice") or "0"
         pool_liquidity = int(pool_data.get("liquidity", 0))
         tvl = float(pool_data.get("totalValueLockedUSD", 0))
         t0_sym = pool_data.get("token0", {}).get("symbol", "")
@@ -508,7 +508,7 @@ def api_estimate():
         # Determine token USD prices (per human token, decimal-adjusted)
         token0_usd, token1_usd = _resolve_token_usd_prices(
             t0_sym, t1_sym, current_t0_in_t1, current_t1_in_t0,
-            current_t0_in_t1, tvl
+            current_t1_in_t0, tvl
         )
 
         # USD price per RAW unit (to match subgraph liquidity units)
@@ -702,13 +702,13 @@ def api_pool_chart():
 
             # Compute user L from capital (for fee share)
             raw_price = lp_math.sqrt_price_x96_to_price(
-                pool_data.get("sqrtPrice", "0")
+                pool_data.get("sqrtPrice") or "0"
             )
             t0_in_t1 = lp_math.raw_price_to_decimal(raw_price, t0_dec, t1_dec)
             t1_in_t0 = 1.0 / t0_in_t1 if t0_in_t1 > 0 else 0
             t0_usd, t1_usd = _resolve_token_usd_prices(
                 pool_data["token0"]["symbol"], pool_data["token1"]["symbol"],
-                t0_in_t1, t1_in_t0, t0_in_t1,
+                t0_in_t1, t1_in_t0, t1_in_t0,
                 float(pool_data.get("totalValueLockedUSD", 0))
             )
             t0_usd_raw = t0_usd / (10 ** t0_dec)
