@@ -152,7 +152,7 @@ def _build_batch_query(pool_configs, offset=0):
             f'hour{idx}: poolHourDatas('
             f'first: 24, orderBy: periodStartUnix, orderDirection: desc, '
             f'where: {{pool: "{pid}", periodStartUnix_gte: {ts_24h_ago}}}) '
-            f"{{ periodStartUnix volumeUSD feesUSD tvlUSD tick liquidity }}"
+            f"{{ periodStartUnix volumeUSD feesUSD tvlUSD }}"
         )
         parts.append(
             f'day{idx}: poolDayDatas('
@@ -343,8 +343,11 @@ def fetch_all_pools():
 # Position Estimate — Concentrated Liquidity Calculator
 # ============================================================
 
-def _build_estimate_query(pool_address, hours=168):
+def _build_estimate_query(pool_address, hours=168, include_tick=True):
     """Build GraphQL query for position estimation with historical hourly data."""
+    hour_fields = '{ periodStartUnix feesUSD volumeUSD tvlUSD }'
+    if include_tick:
+        hour_fields = '{ periodStartUnix tick liquidity feesUSD volumeUSD tvlUSD }'
     return (
         '{ pool(id: "%s") '
         '{ id feeTier totalValueLockedUSD tick sqrtPrice liquidity '
@@ -352,8 +355,8 @@ def _build_estimate_query(pool_address, hours=168):
         'token0Price token1Price } '
         'poolHourDatas(first: %d, orderBy: periodStartUnix, orderDirection: desc, '
         'where: {pool: "%s"}) '
-        '{ periodStartUnix tick liquidity feesUSD volumeUSD tvlUSD } }'
-    ) % (pool_address, min(hours, 1000), pool_address)
+        '%s }'
+    ) % (pool_address, min(hours, 1000), pool_address, hour_fields)
 
 
 def _resolve_token_usd_prices(t0_sym, t1_sym, token0_price_in_token1,
@@ -443,13 +446,19 @@ def api_estimate():
         if not pool_config:
             return jsonify({"success": False, "error": "Pool not found"}), 404
 
-        # Query TheGraph
-        query = _build_estimate_query(pool_address, hours)
+        # Query TheGraph (try with tick/liquidity fields, fallback without)
+        query = _build_estimate_query(pool_address, hours, include_tick=True)
         resp = _session.post(subgraph_url, json={"query": query}, timeout=90)
         resp.raise_for_status()
         result = resp.json()
         if "errors" in result:
-            return jsonify({"success": False, "error": str(result["errors"])}), 500
+            # Retry without tick/liquidity in hourly data (V3 compat)
+            query = _build_estimate_query(pool_address, hours, include_tick=False)
+            resp = _session.post(subgraph_url, json={"query": query}, timeout=90)
+            resp.raise_for_status()
+            result = resp.json()
+            if "errors" in result:
+                return jsonify({"success": False, "error": str(result["errors"])}), 500
 
         data = result["data"]
         pool_data = data.get("pool")
@@ -640,21 +649,28 @@ def api_pool_chart():
         if not pool_config:
             return jsonify({"success": False, "error": "Pool not found"}), 404
 
-        # Fetch historical hourly data
-        query = (
-            '{ pool(id: "%s") '
+        # Fetch historical hourly data (try with tick/liquidity, fallback without)
+        _pool_fields = (
             '{ tick sqrtPrice liquidity totalValueLockedUSD '
-            'token0 { symbol decimals } token1 { symbol decimals } } '
-            'poolHourDatas(first: %d, orderBy: periodStartUnix, '
-            'orderDirection: desc, where: {pool: "%s"}) '
-            '{ periodStartUnix tick liquidity feesUSD tvlUSD } }'
-        ) % (pool_address, min(total_hours, 1000), pool_address)
+            'token0 { symbol decimals } token1 { symbol decimals } }'
+        )
+        _hour_fields_full = '{ periodStartUnix tick liquidity feesUSD tvlUSD }'
+        _hour_fields_basic = '{ periodStartUnix feesUSD tvlUSD }'
 
-        resp = _session.post(subgraph_url, json={"query": query}, timeout=90)
-        resp.raise_for_status()
-        result = resp.json()
-        if "errors" in result:
-            return jsonify({"success": False, "error": str(result["errors"])}), 500
+        for hour_fields in [_hour_fields_full, _hour_fields_basic]:
+            query = (
+                '{ pool(id: "%s") %s '
+                'poolHourDatas(first: %d, orderBy: periodStartUnix, '
+                'orderDirection: desc, where: {pool: "%s"}) %s }'
+            ) % (pool_address, _pool_fields, min(total_hours, 1000),
+                 pool_address, hour_fields)
+            resp = _session.post(subgraph_url, json={"query": query}, timeout=90)
+            resp.raise_for_status()
+            result = resp.json()
+            if "errors" not in result:
+                break
+        else:
+            return jsonify({"success": False, "error": str(result.get("errors", "Query failed"))}), 500
 
         pool_data = result["data"].get("pool")
         hourly = result["data"].get("poolHourDatas", [])
